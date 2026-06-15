@@ -1,0 +1,36 @@
+services:
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      MONGODB_URL: mongodb://mongodb:27017/
+      DATABASE_NAME: trending_topics_db
+      SECRET_KEY: change-me-in-production
+      TWITTER_BEARER_TOKEN: ${TWITTER_BEARER_TOKEN:-}
+      BERTOPIC_MIN_CORPUS_SIZE: "20"
+      BERTOPIC_TRAIN_INTERVAL_MINUTES: "30"
+      LDA_MIN_CORPUS_SIZE: "30"
+      COMPARISON_INTERVAL_HOURS: "168"
+      SMTP_ENABLED: ${SMTP_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+    depends_on:
+      - mongodb
+    volumes:
+      - ./api/reports:/app/api/reports
+      - ./api/artifacts:/app/api/artifacts
+
+volumes:
+  mongo_data:

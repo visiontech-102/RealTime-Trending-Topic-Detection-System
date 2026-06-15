@@ -1,0 +1,22 @@
+==================================================
+           BERTOPIC EVALUATION REPORT             
+==================================================
+
+Generated at: 2026-05-24T22:33:18.198672
+Total Documents: 20
+Number of Topics (excl. outliers): 4
+
+--------------------------------------------------
+Metrics:
+ - Semantic Cohesion (Mean Cosine Similarity): 0.4662
+ - Topic Diversity (Unique Keywords Ratio):  1.0000
+--------------------------------------------------
+
+Topic Size Statistics:
+ Topic  Count  Percentage                                      Name
+     0      7        35.0             0_cusub_dalka_doorashada_amni
+     1      5        25.0 1_inflation_economic_affecting_government
+     2      5        25.0     2_learning_machine_intelligence_state
+     3      3        15.0    3_somali_diaspora_politics_neighboring
+
+==================================================

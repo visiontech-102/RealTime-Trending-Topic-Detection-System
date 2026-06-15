@@ -60,6 +60,8 @@ yarn-error.log*
 # Build outputs
 ui/dist/
 ui/build/
+Frontend/dist/
+Frontend/node_modules/
 
 # Temporary files
 *.tmp

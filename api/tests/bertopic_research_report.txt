@@ -1,0 +1,16 @@
+==================================================
+            FYP RESEARCH CONFIG REPORT            
+==================================================
+
+Project Name: Real-Time Trending Topic Detection System
+Model Under Test: BERTopic (Transformer-based)
+Date generated: 2026-05-24T22:33:18.206945
+
+--------------------------------------------------
+Model Configurations:
+ - min_cluster_size: 2
+ - n_neighbors: 3
+--------------------------------------------------
+
+Document note: Derived from the FYP Implementation Plan.
+==================================================

@@ -1,0 +1,26 @@
+==================================================
+           BERTOPIC EVALUATION REPORT             
+==================================================
+
+Generated at: 2026-06-02T16:54:58.644821
+Total Documents: 1092
+Number of Topics (excl. outliers): 7
+
+--------------------------------------------------
+Metrics:
+ - Semantic Cohesion (Mean Cosine Similarity): 0.3802
+ - Topic Diversity (Unique Keywords Ratio):  0.9429
+--------------------------------------------------
+
+Topic Size Statistics:
+ Topic  Count  Percentage                                 Name
+     0    644   58.974359               0_ai_business_tech_new
+     1    141   12.912088 1_politics_government_election_trump
+     2    132   12.087912     2_somalia_somaliland_israel_iran
+    -1     64    5.860806                 -1_trib_irl_ai_edits
+     3     38    3.479853       3_stock_daily_profits_anitaoh8
+     4     36    3.296703                  4_war_pride_yin_ctw
+     5     19    1.739927     5_cup_football_5xnoicio7v_futbol
+     6     18    1.648352        6_nigeria_abuja_nigerian_lack
+
+==================================================
