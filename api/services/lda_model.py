@@ -148,11 +148,15 @@ class LDATrainer:
             return None, None
             
         # Coherence Score (Cv)
+        # processes=1: gensim's default multiprocessing pool deadlocks on
+        # Windows when invoked without a `if __name__ == "__main__"` guard
+        # (e.g. under pytest or uvicorn's reload subprocess).
         coherence_model = CoherenceModel(
             model=self.model,
             texts=tokenized_docs,
             dictionary=self.dictionary,
-            coherence='c_v'
+            coherence='c_v',
+            processes=1
         )
         coherence_score = coherence_model.get_coherence()
         
