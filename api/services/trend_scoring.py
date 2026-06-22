@@ -3,6 +3,23 @@ Computes trend_score for detected topics from volume and engagement.
 """
 from typing import Iterable
 
+_NOISE_BLOCKLIST = frozenset({'https', 'http', 'www', 'co', 'rt', 'amp', 't'})
+
+
+def _is_hash_like(token: str) -> bool:
+    """True for URL-fragment / handle tokens: all-alphanumeric, length >= 5, mixed letters+digits."""
+    return (
+        token.isalnum()
+        and len(token) >= 5
+        and any(c.isdigit() for c in token)
+        and any(c.isalpha() for c in token)
+    )
+
+
+def clean_keywords(words: list) -> list:
+    """Remove URL noise tokens and hash-like fragments from a topic keyword list."""
+    return [w for w in words if w.lower() not in _NOISE_BLOCKLIST and not _is_hash_like(w)]
+
 
 def compute_trend_score(
     doc_count: int,
@@ -36,3 +53,11 @@ def dominant_language(langs: Iterable[str]) -> dict:
         else:
             counts["others"] += 1
     return counts
+
+
+def generate_topic_label(keywords: list, n: int = 3) -> str:
+    cleaned = clean_keywords(keywords) if keywords else []
+    if not cleaned:
+        return "Unknown Topic"
+    words = [w.replace("_", " ").title() for w in cleaned[:n]]
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " & " + words[-1]

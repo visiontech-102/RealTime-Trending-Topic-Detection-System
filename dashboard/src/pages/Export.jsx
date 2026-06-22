@@ -49,7 +49,7 @@ const Export = () => {
           // Wrap strings in quotes to handle commas
           const values = [
             `"${String(idx + 1).padStart(2, '0')}"`, 
-            `"${row.topic_name}"`, 
+            `"${row.label || row.topic_name}"`,
             `"${row.top_keywords?.join(', ')}"`, 
             `"${row.score?.toFixed(1)}"`, 
             `"N/A"`
@@ -185,7 +185,7 @@ const Export = () => {
                  <div key={t._id || idx} className="grid grid-cols-12 items-center p-6 border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-default">
                    <div className="col-span-2 text-center text-4xl font-extralight text-brand-primary/30 dark:text-slate-800">{String(idx + 1).padStart(2, '0')}</div>
                    <div className="col-span-5">
-                     <div className="text-[14px] font-bold text-brand-primary dark:text-slate-200 mb-0.5">{t.topic_name}</div>
+                     <div className="text-[14px] font-bold text-brand-primary dark:text-slate-200 mb-0.5">{t.label || t.topic_name}</div>
                      <div className="text-[9px] font-bold uppercase tracking-wider text-brand-secondary dark:text-brand-secondary truncate pr-4">{t.top_keywords?.join(', ')}</div>
                    </div>
                    <div className="col-span-2 text-center flex justify-center items-center gap-1">

@@ -1,6 +1,7 @@
 import re
 import os
 import logging
+from pathlib import Path
 import nltk
 import pandas as pd
 import numpy as np
@@ -33,31 +34,25 @@ except LookupError:
 # English Stopwords
 english_stopwords = set(nltk.corpus.stopwords.words('english'))
 
-# Custom Somali Stopwords List (from original preprocessing blueprint)
-somali_stopwords = set([
-    "aa", "aad","aan", "aan ahayn", "adiga", "adigoo",
-    "adiguba","ah", "ahaa","ahayn", "aka", "ama", "amase",
-    "amp", "ani", "aniga", "anigoo", "annaga","Arbaco", "asaga", 
-    "asaguba","ay", "ayaa","balse","berri", "brb", "bye", "cid", "cidna",
-    "co", "com", "dad","dambe", "danbe","dhan",
-    "dhex","dib", "dm","e", "edu", "ee", "fadlan",
-    "follow", "fwiw", "fyi","gal", "goor","gov", "gudaha", 
-    "haa", "haatan", "had iyo jeer", "hadda",
-    "hello", "hey", "hi", "hoose", "hore", "http",
-    "https","ii", "ilaa", "illaa", "imho","imo",
-    "in", "inaga", "inay","innaga","inta","inuu", "io",
-    "is", "isaga","iyaga","iyagoo","iyo","ka", "ka badan",
-    "kor", "ku","kuma", "kumaa","la", "la'aan", "la'aanteed",
-    "leh", "like", "lol", "loo", "looga", "loogu", "ma",
-    "marka", "markaa","markii", "markuu", "maxaa","maya",
-    "net", "noqon", "oh", "ok", "omg", "oo", "org", "pm", "qaar",
-    "qof","quot", "quote", "reply", "retweet", "rt", "runtii",
-    "si", "sida", "sidaa", "sidaas","sidee", "sidoo","sii", "soo", "tahay",
-    "tbh", "tbt", "tiri", "tiro","tuma","u", "ugu","uh", "um", "uu", "via", "waa",
-    "waayo", "waaye", "wacan", "wada", "walba", "wali","waqtiga",
-    "wax","waxa", "waxaan","waxay", "waxba", "waxna", "waxuba","weli",
-    "wow", "wuxuu", "www", "xiga","xitaa","yaa", "yar"
-])
+# Somali stopwords — loaded from the single source of truth at api/resources/stopwords.txt.
+# Path is resolved relative to this file so it works regardless of launch directory.
+_SOMALI_STOPWORDS_PATH = Path(__file__).resolve().parent.parent / "resources" / "stopwords.txt"
+
+
+def _load_somali_stopwords(path: Path) -> set:
+    if not path.exists():
+        logger.error(
+            "Somali stopwords file NOT FOUND at %s — "
+            "Somali preprocessing will have no stopword filtering. "
+            "Restore the file and restart the server.",
+            path,
+        )
+        return set()
+    with path.open(encoding="utf-8") as f:
+        return {line.strip().lower() for line in f if line.strip()}
+
+
+somali_stopwords = _load_somali_stopwords(_SOMALI_STOPWORDS_PATH)
 
 def preprocess_lda(text: str, lang: str) -> list:
     """

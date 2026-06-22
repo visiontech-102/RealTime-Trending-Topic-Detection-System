@@ -229,7 +229,7 @@ async def health_check(db=Depends(get_database)):
         "status": "ok" if db_ok and not any(a["level"] == "error" for a in monitoring["alerts"]) else "degraded",
         "database_connected": db_ok,
         "detected_trend_count": trend_count,
-        "min_corpus_for_training": int(os.getenv("BERTOPIC_MIN_CORPUS_SIZE", "20")),
+        "min_corpus_for_training": int(os.getenv("BERTOPIC_MIN_CORPUS_SIZE", "1000")),
         **monitoring,
     }
 
@@ -249,9 +249,16 @@ async def trigger_lda_training(current_user: dict = Depends(get_current_user)):
     return await run_lda_pipeline()
 
 
+@router.post("/jobs/train-nmf")
+async def trigger_nmf_training(current_user: dict = Depends(get_current_user)):
+    """Manually trigger NMF baseline training (authenticated)."""
+    from jobs.nmf_pipeline import run_nmf_pipeline
+    return await run_nmf_pipeline()
+
+
 @router.post("/jobs/run-comparison")
 async def trigger_model_comparison(current_user: dict = Depends(get_current_user)):
-    """Build LDA vs BERTopic comparison from latest pipeline runs."""
+    """Run three-way metrics-driven comparison of LDA, NMF, and BERTopic."""
     from jobs.model_comparison import run_model_comparison
     return await run_model_comparison()
 
@@ -264,7 +271,7 @@ async def trigger_email_digests(current_user: dict = Depends(get_current_user)):
 
 @router.get("/models/comparison")
 async def get_model_comparison(db=Depends(get_database)):
-    """Return latest eight-criteria model comparison report."""
+    """Return the latest three-way model comparison report (LDA, NMF, BERTopic)."""
     state = await db["pipeline_state"].find_one({"pipeline": "model_comparison"})
     if state and state.get("report"):
         return state["report"]
@@ -274,7 +281,7 @@ async def get_model_comparison(db=Depends(get_database)):
         return json.loads(report_path.read_text(encoding="utf-8"))
     raise HTTPException(
         status_code=404,
-        detail="No comparison report yet. Run POST /jobs/train-lda, /jobs/train-bertopic, then /jobs/run-comparison.",
+        detail="No comparison report yet. Run POST /jobs/train-lda, /jobs/train-nmf, /jobs/train-bertopic, then /jobs/run-comparison.",
     )
 
 
@@ -306,10 +313,11 @@ def adapt_trend_to_frontend(t: dict, requested_lang: str):
     return {
         "_id": str(t.get("_id", t.get("id"))),
         "topic_name": t.get("Name", "Unknown Topic"),
+        "label": t.get("label", t.get("Name", "Unknown Topic")),
         "top_keywords": t.get("Representation", []),
-        "representative_docs": t.get("representative_docs", [])[:10],
+        "representative_docs": list(dict.fromkeys(d for d in t.get("representative_docs", []) if d))[:10],
         "score": t.get("trend_score", 0.0),
-        "language": requested_lang,
+        "language": ", ".join(l for l in t.get("lang", [requested_lang]) if l in ("en", "so")),
         "timestamp": t.get("calculated_at", datetime.utcnow())
     }
 
@@ -343,7 +351,20 @@ async def get_trends(
 
     cursor = trends_collection.find(query).sort("trend_score", -1).limit(limit)
     trends = await cursor.to_list(length=limit)
-    return [adapt_trend_to_frontend(t, lang) for t in trends]
+
+    # Defensive dedup: strip numeric prefix (e.g. "5_madaxweyne" -> "madaxweyne")
+    # so renamed variants from old runs collapse to the same key. Score-sorted results
+    # mean the first occurrence is always the highest-scoring one.
+    import re as _re
+    seen: set = set()
+    deduped: list = []
+    for t in trends:
+        word_key = _re.sub(r'^-?\d+_', '', t.get("Name", ""))
+        if word_key not in seen:
+            seen.add(word_key)
+            deduped.append(t)
+
+    return [adapt_trend_to_frontend(t, lang) for t in deduped]
 
 @router.get("/history")
 async def get_history(

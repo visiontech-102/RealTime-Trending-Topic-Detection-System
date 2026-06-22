@@ -1,9 +1,9 @@
 # ==============================================================================
-# Real-Time Trending Topic Detection System - Backend Python Requirements
-# Final Year Project (FYP) Bilingual (English & Somali) System Dependencies
+# Real-Time Trending Topic Detection System — Backend Python Dependencies
+# Final Year Project (FYP) 2026: Bilingual English/Somali Topic Modeling
 # ==============================================================================
 
-# --- Web Framework & ASGI Server ---
+# --- Web API Framework ---
 fastapi==0.111.0
 uvicorn==0.29.0
 python-multipart==0.0.9
@@ -11,39 +11,47 @@ pydantic==2.7.1
 pydantic-settings==2.2.1
 email-validator==2.1.1
 
-# --- Database & MongoDB Driver (Async Motor) ---
+# --- Database (Async MongoDB) ---
 motor==3.4.0
 pymongo==4.7.2
 
-# --- Authentication, Security & Cryptography ---
+# --- Authentication & Security ---
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
 
-# --- Data Science, Mathematics & Utilities ---
+# --- Core Data Science ---
 numpy>=1.24.0
 scipy>=1.10.0
 pandas==2.2.2
-python-dotenv==1.0.1
-langdetect==1.0.9
+
+# --- NLP Preprocessing ---
 nltk==3.8.1
+langdetect==1.0.9
 
-# --- Live Data Collection & Social Media Crawler ---
-tweepy==4.14.0
-
-# --- Baseline Model: Latent Dirichlet Allocation (LDA) ---
+# --- Topic Modeling: LDA (Baseline) ---
 gensim==4.3.2
 pyLDAvis==3.4.1
 
-# --- Advanced Model: BERTopic (Production Model) ---
+# --- Topic Modeling: NMF (Baseline) ---
+# scikit-learn provides NMF decomposition and TfidfVectorizer;
+# also used by BERTopic's CountVectorizer and cosine_similarity.
+scikit-learn==1.3.2
+
+# --- Topic Modeling: BERTopic (Advanced) ---
 bertopic==0.16.2
 sentence-transformers==2.7.0
-scikit-learn==1.3.2
 umap-learn==0.5.6
 hdbscan>=0.8.36
 plotly==5.22.0
 
-# --- Testing Suite & HTTP Clients ---
+# --- Data Collection ---
+tweepy==4.14.0
+
+# --- Environment & Configuration ---
+python-dotenv==1.0.1
+
+# --- Testing ---
 pytest==8.2.0
 pytest-asyncio==0.23.6
 httpx==0.27.0

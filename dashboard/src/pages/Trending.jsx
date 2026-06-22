@@ -126,7 +126,7 @@ const Trending = () => {
                         {String(idx + 1).padStart(2, '0')}
                       </div>
                       <div className="col-span-6 pl-4 pr-12">
-                        <div className="text-[15px] font-bold text-brand-primary dark:text-slate-200">{t.topic_name}</div>
+                        <div className="text-[15px] font-bold text-brand-primary dark:text-slate-200">{t.label || t.topic_name}</div>
                         <div className="text-xs text-slate-400 dark:text-slate-300 mt-0.5">{t.top_keywords?.join(', ')}</div>
                       </div>
                       <div className="col-span-1 text-center border-x border-slate-100 dark:border-slate-800 flex justify-center">

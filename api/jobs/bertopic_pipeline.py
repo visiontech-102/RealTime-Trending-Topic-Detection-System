@@ -13,7 +13,7 @@ from services.notifications import check_and_send_spike_alerts
 from db.connection import get_database, deduplicate_existing_trends
 from pipelines.corpus_loader import get_corpus_count, load_tweet_corpus
 from services.bertopic_model import BERTopicTrainer, preprocess_bertopic
-from services.trend_scoring import compute_trend_score, dominant_language
+from services.trend_scoring import clean_keywords, compute_trend_score, dominant_language, generate_topic_label
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ def _build_trend_documents(df_clean, trainer, topics: list, calculated_at: datet
         langs = subset["lang_api"].tolist()
 
         keywords = trainer.topic_model.get_topic(topic_id)
-        representation = [w for w, _ in keywords[:10]] if keywords else []
+        representation = clean_keywords([w for w, _ in keywords[:10]] if keywords else [])
 
         # 1. Waxaan soo akhrineynaa tweets-ka safeysan ee moodelku u calaamadeeyay inay yihiin kuwo tusaale u ah mawduuca (Representative Docs)
         rep_clean_docs = None
@@ -118,6 +118,7 @@ def _build_trend_documents(df_clean, trainer, topics: list, calculated_at: datet
             "topic": topic_id,
             "Name": str(trow.get("Name", f"Topic_{topic_id}")),
             "Representation": representation,
+            "label": generate_topic_label(representation),
             "representative_docs": representative_docs,
             "volume": volume,
             "total_likes": total_likes,
@@ -148,25 +149,14 @@ async def _persist_trends(
 ) -> int:
     db = await get_database()
     coll = db["detected_trends"]
-    
-    # Filter out duplicates (having exact same Name, model, volume, trend_score)
-    unique_trend_docs = []
-    for doc in trend_docs:
-        exists = await coll.find_one({
-            "Name": doc["Name"],
-            "model": doc["model"],
-            "volume": doc["volume"],
-            "trend_score": doc["trend_score"]
-        })
-        if not exists:
-            unique_trend_docs.append(doc)
-        else:
-            logger.info("Skipped inserting duplicate trend: %s (model: %s, volume: %d, score: %s)", 
-                        doc["Name"], doc["model"], doc["volume"], doc["trend_score"])
-                        
+
+    # Replace previous BERTopic run entirely so detected_trends always holds
+    # exactly one clean set of topics — no accumulation across runs.
+    await coll.delete_many({"model": "bertopic"})
+    unique_trend_docs = trend_docs
+
     if unique_trend_docs:
         await coll.insert_many(unique_trend_docs)
-        await deduplicate_existing_trends()
         
     state_update = {
         "last_run_at": calculated_at,

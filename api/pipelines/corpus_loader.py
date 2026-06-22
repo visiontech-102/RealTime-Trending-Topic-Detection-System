@@ -17,7 +17,7 @@ SUPPORTED_LANGS = ("en", "so")
 async def load_tweet_corpus(
     lang: Optional[str] = None,
     limit: int = 5000,
-    min_text_length: int = 5,
+    min_text_length: int = 3,
 ) -> pd.DataFrame:
 
     """
@@ -48,6 +48,7 @@ async def load_tweet_corpus(
     if "text" not in df.columns:
         return pd.DataFrame()
 
+    df = df[df["text"].notna()].copy()
     df["text"] = df["text"].astype(str).str.strip()
     df = df[df["text"].str.len() >= min_text_length].copy()
 

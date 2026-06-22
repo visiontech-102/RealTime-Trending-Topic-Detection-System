@@ -25,11 +25,15 @@ async def periodic_data_collection_loop(app: FastAPI):
         return
 
     collector = TweetCollector(bearer_token=bearer_token)
-    queries = [
-         "(politics OR government OR economy OR business OR war OR AI OR climate OR election) lang:en -is:retweet -is:reply",
-         "(#Politics OR #Economy OR #AI OR #Technology) lang:en -is:retweet -is:reply",
-         "(dowladda OR doorasho OR baarlamaanka OR dhaqaalaha OR shacabka OR dagaal OR siyaasad OR madaxweyne OR amniga OR gargaar OR galmudug OR hirshabeelle OR koofurgalbeed) lang:so -is:retweet -is:reply",
-         "(#Somalia OR #Soomaaliya OR #SomaliTwitter #Mogadishu OR #Muqdisho OR #Somaliland OR #Puntland OR #galmudug #Villasomalia #koofurgalbeed) -is:retweet -is:reply",
+    queries = [  
+             # 1 — Siyaasad & dowlad
+             "(dowladda OR xukuumada OR doorasho OR baarlamaanka OR madaxweyne OR raysalwasaare OR wasiir OR siyaasad OR musharraxa OR xisbiga OR golaha OR dastuurka OR xildhibaan ) -is:retweet -is:reply",
+             # 2 — Amni & dagaal
+             "(amniga OR dagaal OR weerar OR warar OR wareysi OR ciidamada OR alshabaab OR qarax OR nabadgelyo OR howlgal OR argagixiso OR difaaca OR magaalada OR burbur) -is:retweet -is:reply",
+             # 3 — Dhaqaale, bulsho & gargaar
+             "(dhaqaalaha OR ganacsiga OR lacagta OR suuqa OR shacabka OR gargaar OR abaaraha OR barakac OR caafimaad OR waxbarasho OR kubadda OR ciyaaraha OR koobka OR adduunka OR bulsho OR heshiis OR qabiil OR  ) -is:retweet -is:reply",
+             # 4 — Hashtag & gobollo
+             "(#Soomaaliya OR #Somalia OR #SomaliTwitter OR #Muqdisho OR #Mogadishu OR #Somaliland OR #Puntland OR #Galmudug OR #Hirshabelle OR #Koofurgalbeed OR #Jubaland OR #Banadir OR #Villasomalia) -is:retweet -is:reply",
     ]
 
     while True:

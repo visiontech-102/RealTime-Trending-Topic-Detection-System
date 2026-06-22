@@ -57,14 +57,11 @@ async def init_db_indexes():
 
 
 async def deduplicate_existing_trends():
-    """Identifies and removes duplicate records from the detected_trends collection,
-    keeping only the latest document (based on calculated_at) for each unique Name,
-    and assigns a unique sequential topic number to each document."""
+    """Remove duplicate detected_trends documents, keeping the latest (by calculated_at) for each Name."""
     from datetime import datetime
     db = await get_database()
     coll = db["detected_trends"]
-    
-    # 1. Group duplicates by Name
+
     pipeline = [
         {
             "$group": {
@@ -78,43 +75,23 @@ async def deduplicate_existing_trends():
                 }
             }
         },
-        {
-            "$match": {
-                "count": {"$gt": 1}
-            }
-        }
+        {"$match": {"count": {"$gt": 1}}},
     ]
-    
+
     cursor = coll.aggregate(pipeline)
     deleted_count = 0
     async for group in cursor:
         docs = group["docs"]
-        # Sort documents by calculated_at descending to keep the latest one
         docs.sort(key=lambda d: d.get("calculated_at") or datetime.min, reverse=True)
-        
-        # Keep the first one (latest), delete the rest
         to_delete_ids = [d["id"] for d in docs[1:]]
         if to_delete_ids:
             res = await coll.delete_many({"_id": {"$in": to_delete_ids}})
             deleted_count += res.deleted_count
-            
-    # 2. Assign unique sequential topic numbers (0, 1, 2...) and update Name prefix
-    import re
-    cursor_all = coll.find({}).sort("calculated_at", 1)
-    all_docs = await cursor_all.to_list(length=1000)
-    for idx, doc in enumerate(all_docs):
-        old_name = doc.get("Name", "")
-        clean_name_part = re.sub(r'^-?\d+_', '', old_name)
-        new_name = f"{idx}_{clean_name_part}"
-        await coll.update_one(
-            {"_id": doc["_id"]},
-            {"$set": {"topic": idx, "Name": new_name}}
-        )
-            
+
     if deleted_count > 0:
-        logger.info("Deduplication complete: removed %d duplicate trend documents. Assigned unique sequential topic numbers to %d trends.", deleted_count, len(all_docs))
+        logger.info("Deduplication complete: removed %d duplicate trend documents.", deleted_count)
     else:
-        logger.info("Deduplication complete: no duplicate trends found. Assigned unique sequential topic numbers to %d trends.", len(all_docs))
+        logger.info("Deduplication complete: no duplicates found.")
     return deleted_count
 
 

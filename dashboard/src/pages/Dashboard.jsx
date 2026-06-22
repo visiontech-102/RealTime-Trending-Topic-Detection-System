@@ -87,7 +87,7 @@ const Dashboard = () => {
         });
 
         setTopTopics(data.slice(0, 8).map(t => ({
-          name: t.topic_name.length > 15 ? t.topic_name.substring(0, 15) + '...' : t.topic_name,
+          name: (t.label || t.topic_name).length > 15 ? (t.label || t.topic_name).substring(0, 15) + '...' : (t.label || t.topic_name),
           count: Math.floor(t.score)
         })));
       }

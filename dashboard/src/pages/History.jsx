@@ -42,7 +42,8 @@ const History = () => {
 
   const total = trends.length;
   const avg = trends.length ? (trends.reduce((acc, t) => acc + (t.score || 0), 0) / trends.length).toFixed(1) : '0.0';
-  const top = trends.length > 0 ? trends.sort((a,b) => b.score - a.score)[0].topic_name : 'N/A';
+  const topTrend = trends.length > 0 ? trends.sort((a,b) => b.score - a.score)[0] : null;
+  const top = topTrend ? (topTrend.label || topTrend.topic_name) : 'N/A';
 
   return (
     <div className="animate-in fade-in duration-500 w-full mb-8">
@@ -104,7 +105,7 @@ const History = () => {
              {trends.map((item, idx) => (
                <div key={item._id || idx} className="grid grid-cols-12 items-center p-4 border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                  <div className="col-span-5">
-                   <div className="text-[15px] font-bold text-slate-900 dark:text-slate-200">{item.topic_name}</div>
+                   <div className="text-[15px] font-bold text-slate-900 dark:text-slate-200">{item.label || item.topic_name}</div>
                    <div className="text-[11px] text-slate-400 mt-0.5">{item.top_keywords?.join(', ')}</div>
                  </div>
                  <div className="col-span-2 text-center">

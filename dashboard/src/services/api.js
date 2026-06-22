@@ -130,6 +130,11 @@ export const trainBertopic = async () => {
   return response.data;
 };
 
+export const trainNmf = async () => {
+  const response = await api.post('/jobs/train-nmf');
+  return response.data;
+};
+
 export const getVisualizationUrl = (model) =>
   `http://localhost:8000/visualizations/${model}`;
 

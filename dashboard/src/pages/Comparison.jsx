@@ -58,40 +58,79 @@ const Comparison = () => {
 
 
 
-      {modelComparison?.criteria_comparison?.length > 0 && (
+      {modelComparison && (modelComparison.lda_metrics || modelComparison.nmf_metrics || modelComparison.bertopic_metrics) && (
         <div className="mb-10 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
           <h2 className="text-lg font-bold text-brand-primary dark:text-white mb-1">
-            LDA vs BERTopic — Deployment Selection
+            Model Comparison — LDA, NMF &amp; BERTopic (Deployment Selection)
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-            Selected for production: <span className="font-bold text-brand-secondary uppercase">{modelComparison.selected_deployment_model}</span>
-            {' '}({modelComparison.criteria_winner_count?.bertopic ?? 0}/{modelComparison.criteria_comparison.length} criteria)
+            Selected for production:{' '}
+            <span className="font-bold text-brand-secondary uppercase">
+              {modelComparison.selected_deployment_model ?? 'unknown'}
+            </span>
+            {modelComparison.model_metric_scores && (
+              <span className="ml-2 text-slate-400">
+                — mean C_v:{' '}
+                {Object.entries(modelComparison.model_metric_scores)
+                  .sort(([, a], [, b]) => (b.mean_c_v ?? 0) - (a.mean_c_v ?? 0))
+                  .map(([m, s]) => `${m.toUpperCase()} ${s.mean_c_v ?? 'N/A'}`)
+                  .join(' · ')}
+              </span>
+            )}
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-700 text-[10px] uppercase tracking-widest text-slate-500">
-                  <th className="py-2 pr-4">Criterion</th>
-                  <th className="py-2 pr-4">LDA (Baseline)</th>
-                  <th className="py-2 pr-4">BERTopic</th>
-                  <th className="py-2">Winner</th>
+                  <th className="py-2 pr-4">Model</th>
+                  <th className="py-2 pr-4">Lang</th>
+                  <th className="py-2 pr-4 text-right">C_v</th>
+                  <th className="py-2 pr-4 text-right">U_Mass</th>
+                  <th className="py-2 pr-4 text-right">Diversity</th>
+                  <th className="py-2 text-right">K</th>
                 </tr>
               </thead>
               <tbody>
-                {modelComparison.criteria_comparison.map((row, i) => (
-                  <tr key={i} className="border-b border-slate-100 dark:border-slate-800">
-                    <td className="py-2 pr-4 font-semibold text-brand-primary dark:text-slate-200">{row.criterion}</td>
-                    <td className="py-2 pr-4 text-slate-600 dark:text-slate-400 max-w-xs">{row.lda}</td>
-                    <td className="py-2 pr-4 text-slate-600 dark:text-slate-400 max-w-xs">{row.bertopic}</td>
-                    <td className="py-2 font-mono uppercase text-brand-secondary">{row.deployment_winner}</td>
-                  </tr>
-                ))}
+                {[
+                  { key: 'lda', label: 'LDA' },
+                  { key: 'nmf', label: 'NMF' },
+                  { key: 'bertopic', label: 'BERTopic' },
+                ].flatMap(({ key, label }) => {
+                  const metrics = modelComparison[`${key}_metrics`];
+                  const isWinner = modelComparison.selected_deployment_model === key;
+                  return ['en', 'so', 'combined'].map((lang, langIdx) => {
+                    const row = metrics?.[lang];
+                    const fmt = (v) => (v == null ? 'N/A' : v.toFixed(4));
+                    return (
+                      <tr
+                        key={`${key}-${lang}`}
+                        className={`border-b border-slate-100 dark:border-slate-800 ${isWinner ? 'bg-brand-secondary/5 dark:bg-brand-secondary/10' : ''}`}
+                      >
+                        <td className="py-2 pr-4 font-semibold text-brand-primary dark:text-slate-200">
+                          {langIdx === 0 && (
+                            <span className="flex items-center gap-1">
+                              {isWinner && <span className="text-brand-secondary">&#9733;</span>}
+                              {label}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4 uppercase text-[10px] text-slate-500 dark:text-slate-400">{lang}</td>
+                        <td className={`py-2 pr-4 text-right font-mono ${isWinner ? 'text-brand-secondary font-semibold' : 'text-slate-600 dark:text-slate-400'}`}>
+                          {fmt(row?.c_v)}
+                        </td>
+                        <td className="py-2 pr-4 text-right font-mono text-slate-600 dark:text-slate-400">{fmt(row?.u_mass)}</td>
+                        <td className="py-2 pr-4 text-right font-mono text-slate-600 dark:text-slate-400">{fmt(row?.diversity)}</td>
+                        <td className="py-2 text-right font-mono text-slate-500 dark:text-slate-400">{row?.K ?? 'N/A'}</td>
+                      </tr>
+                    );
+                  });
+                })}
               </tbody>
             </table>
           </div>
           <div className="mt-4 flex gap-4 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-            <a href="http://localhost:8000/visualizations/lda" target="_blank" rel="noreferrer" className="hover:text-brand-secondary">pyLDAvis →</a>
-            <a href="http://localhost:8000/visualizations/bertopic" target="_blank" rel="noreferrer" className="hover:text-brand-secondary">BERTopic intertopic →</a>
+            <a href="http://localhost:8000/visualizations/lda" target="_blank" rel="noreferrer" className="hover:text-brand-secondary">pyLDAvis &#8594;</a>
+            <a href="http://localhost:8000/visualizations/bertopic" target="_blank" rel="noreferrer" className="hover:text-brand-secondary">BERTopic intertopic &#8594;</a>
           </div>
         </div>
       )}
@@ -115,7 +154,7 @@ const Comparison = () => {
                     {String(idx + 1).padStart(2, '0')}
                   </div>
                   <div className="flex-1 pr-6">
-                    <h3 className="text-[15px] font-bold text-brand-primary dark:text-slate-200 group-hover:text-brand-secondary transition-colors mb-2">{t.topic_name}</h3>
+                    <h3 className="text-[15px] font-bold text-brand-primary dark:text-slate-200 group-hover:text-brand-secondary transition-colors mb-2">{t.label || t.topic_name}</h3>
                     <div className="flex flex-wrap gap-x-4 gap-y-2 text-[9px] uppercase font-bold tracking-widest text-slate-400 dark:text-slate-300">
                        <span>SCORE: <span className="text-slate-600 dark:text-slate-200 font-mono">{t.score ? t.score.toFixed(1) : 0}</span></span>
                        <span>KEYWORDS: <span className="text-brand-primary dark:text-slate-200">{t.top_keywords?.join(', ')}</span></span>
@@ -141,7 +180,7 @@ const Comparison = () => {
                      {String(idx + 1).padStart(2, '0')}
                    </div>
                    <div className="flex-1 pr-6">
-                     <h3 className="text-[15px] font-bold text-brand-primary dark:text-slate-200 group-hover:text-brand-secondary transition-colors mb-2">{t.topic_name}</h3>
+                     <h3 className="text-[15px] font-bold text-brand-primary dark:text-slate-200 group-hover:text-brand-secondary transition-colors mb-2">{t.label || t.topic_name}</h3>
                      <div className="flex flex-wrap gap-x-4 gap-y-2 text-[9px] uppercase font-bold tracking-widest text-slate-400 dark:text-slate-300">
                         <span>SCORE: <span className="text-slate-600 dark:text-slate-200 font-mono">{t.score ? t.score.toFixed(1) : 0}</span></span>
                         <span>KEYWORDS: <span className="text-brand-primary dark:text-slate-200">{t.top_keywords?.join(', ')}</span></span>
