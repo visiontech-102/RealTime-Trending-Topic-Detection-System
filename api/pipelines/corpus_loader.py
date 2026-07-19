@@ -18,6 +18,7 @@ async def load_tweet_corpus(
     lang: Optional[str] = None,
     limit: int = 5000,
     min_text_length: int = 3,
+    after_timestamp=None,
 ) -> pd.DataFrame:
 
     """
@@ -27,11 +28,14 @@ async def load_tweet_corpus(
         lang: Filter by lang_api ('en', 'so'), or None for full bilingual corpus.
         limit: Maximum tweets to load (most recent first).
         min_text_length: Drop tweets shorter than this after strip.
+        after_timestamp: If set, only load tweets with collected_at > this value.
     """
     db = await get_database()
     query = {}
     if lang and lang in SUPPORTED_LANGS:
         query["lang_api"] = lang
+    if after_timestamp is not None:
+        query["collected_at"] = {"$gt": after_timestamp}
 
     cursor = (
         db["raw_tweets"]
@@ -67,10 +71,12 @@ async def load_tweet_corpus(
     return df
 
 
-async def get_corpus_count(lang: Optional[str] = None) -> int:
+async def get_corpus_count(lang: Optional[str] = None, after_timestamp=None) -> int:
     """Return number of tweets available for training."""
     db = await get_database()
     query = {}
     if lang and lang in SUPPORTED_LANGS:
         query["lang_api"] = lang
+    if after_timestamp is not None:
+        query["collected_at"] = {"$gt": after_timestamp}
     return await db["raw_tweets"].count_documents(query)

@@ -73,8 +73,8 @@ BERTOPIC_MCS_OFFSETS = [0, 2, 4]  # added to the adaptive base min_cluster_size
 # ---------------------------------------------------------------------------
 
 def _safe_mean(vals: list):
-    """Mean of a list, skipping None values; returns None if all are None."""
-    clean = [v for v in vals if v is not None]
+    """Mean of a list, skipping None values; returns Python float or None."""
+    clean = [float(v) for v in vals if v is not None]
     return sum(clean) / len(clean) if clean else None
 
 
@@ -260,7 +260,7 @@ async def run_enhancement(winner: str) -> dict:
 
     best    = ranked[0]
     best_cv = best["mean_c_v"]
-    adopted = best_cv is not None and best_cv > baseline_cv
+    adopted = bool(best_cv is not None and best_cv > baseline_cv)
 
     # 5. Build and persist the before/after report
     report = {

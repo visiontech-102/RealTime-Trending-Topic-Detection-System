@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 API_ROOT = Path(__file__).resolve().parent.parent
 REPORTS_DIR = API_ROOT / "reports" / "lda"
-ARTIFACTS_DIR = API_ROOT / "artifacts" / "visualizations"
+
 
 MIN_CORPUS_SIZE = int(os.getenv("LDA_MIN_CORPUS_SIZE", "1000"))
 CORPUS_LIMIT = int(os.getenv("LDA_CORPUS_LIMIT", "2000"))
@@ -46,13 +46,13 @@ def _tokenize_corpus(df) -> list:
 
 
 def _pick_best_from_grid(results_df) -> dict:
-    """Highest coherence; tie-break with lower perplexity."""
+    """Highest C_v coherence; tie-break with smaller K (Occam's razor)."""
     if results_df.empty:
         return {}
     df = results_df.dropna(subset=["coherence"], how="all")
     if df.empty:
         return results_df.iloc[0].to_dict()
-    sorted_df = df.sort_values(by=["coherence", "perplexity"], ascending=[False, True])
+    sorted_df = df.sort_values(by=["coherence", "K"], ascending=[False, True])
     return sorted_df.iloc[0].to_dict()
 
 
@@ -60,7 +60,7 @@ def _run_lda_sync(tokenized_docs: list, use_grid: bool):
     dictionary, corpus = prepare_lda_matrices(tokenized_docs, use_tfidf=False)
 
     if use_grid and len(tokenized_docs) >= 50:
-        topic_range = [5, 8, 10, 12]
+        topic_range = list(range(4, 13))  # [4,5,6,7,8,9,10,11,12] — dense, finds true optimal K
         results_df = run_lda_grid_search(
             tokenized_docs,
             corpus,
@@ -177,10 +177,8 @@ async def run_lda_pipeline() -> dict:
 
     calculated_at = datetime.now(timezone.utc)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
 
     report_path = REPORTS_DIR / "latest_eval.json"
-    viz_path = ARTIFACTS_DIR / "lda_intertopic.html"
 
     report_payload = {
         "generated_at": calculated_at.isoformat(),
@@ -198,13 +196,6 @@ async def run_lda_pipeline() -> dict:
     }
     report_path.write_text(json.dumps(report_payload, indent=2), encoding="utf-8")
 
-    try:
-        await asyncio.to_thread(
-            result["trainer"].generate_visualization, str(viz_path)
-        )
-    except Exception as e:
-        logger.warning("pyLDAvis generation failed: %s", e)
-
     await _persist_lda_state(result, calculated_at, last_trained_tweet_collected_at=max_collected_at)
 
     summary = {
@@ -215,7 +206,6 @@ async def run_lda_pipeline() -> dict:
         "perplexity": round(result["perplexity"], 4) if result["perplexity"] else None,
         "calculated_at": calculated_at.isoformat(),
         "report_path": str(report_path),
-        "visualization_path": str(viz_path),
     }
     logger.info("LDA pipeline complete: %s", summary)
     return summary

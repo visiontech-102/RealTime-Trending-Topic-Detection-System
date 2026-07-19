@@ -59,7 +59,6 @@ const Trending = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 md:gap-0 mb-6 w-full">
         <div>
           <h1 className="text-3xl font-extrabold text-brand-primary dark:text-white mb-2">{t('trending')}</h1>
-          <p className="text-slate-500 dark:text-slate-200">Monitoring real-time cross-linguistic activity.</p>
         </div>
         <div className="flex flex-col items-end gap-3 w-full md:w-1/3">
           {/* Use Case: Search Trends by Keyword */}
@@ -92,7 +91,7 @@ const Trending = () => {
               <button 
                 key={f.id} 
                 onClick={() => setFilter(f.id)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${filter === f.id ? 'bg-brand-secondary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${filter === f.id ? 'bg-brand-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-brand-primary dark:text-slate-300 hover:bg-brand-primary hover:text-white dark:hover:bg-brand-secondary dark:hover:text-slate-900'}`}
               >
                 {f.label}
               </button>
@@ -130,7 +129,7 @@ const Trending = () => {
                         <div className="text-xs text-slate-400 dark:text-slate-300 mt-0.5">{t.top_keywords?.join(', ')}</div>
                       </div>
                       <div className="col-span-1 text-center border-x border-slate-100 dark:border-slate-800 flex justify-center">
-                        <span className="bg-brand-primary/10 text-brand-primary dark:bg-brand-primary/30 dark:text-brand-secondary text-[10px] font-bold px-2 py-1 rounded-sm uppercase">{t.language}</span>
+                        <span className="bg-brand-primary/10 text-brand-primary dark:bg-brand-primary/30 dark:text-brand-secondary text-[10px] font-bold px-2 py-1 rounded-sm uppercase">{(t.language || '').toUpperCase()}</span>
                       </div>
                       <div className="col-span-3 text-center border-r border-slate-100 dark:border-slate-800 flex flex-col justify-center items-center">
                         <div className="flex items-center gap-2">

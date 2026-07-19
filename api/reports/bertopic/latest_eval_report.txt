@@ -2,25 +2,41 @@
            BERTOPIC EVALUATION REPORT             
 ==================================================
 
-Generated at: 2026-06-02T16:54:58.644821
-Total Documents: 1092
-Number of Topics (excl. outliers): 7
+Generated at: 2026-06-27T14:34:39.448700
+Total Documents: 1829
+Number of Topics (excl. outliers): 23
 
 --------------------------------------------------
 Metrics:
- - Semantic Cohesion (Mean Cosine Similarity): 0.3802
- - Topic Diversity (Unique Keywords Ratio):  0.9429
+ - Semantic Cohesion (Mean Cosine Similarity): 0.4832
+ - Topic Diversity (Unique Keywords Ratio):  0.8957
 --------------------------------------------------
 
 Topic Size Statistics:
- Topic  Count  Percentage                                 Name
-     0    644   58.974359               0_ai_business_tech_new
-     1    141   12.912088 1_politics_government_election_trump
-     2    132   12.087912     2_somalia_somaliland_israel_iran
-    -1     64    5.860806                 -1_trib_irl_ai_edits
-     3     38    3.479853       3_stock_daily_profits_anitaoh8
-     4     36    3.296703                  4_war_pride_yin_ctw
-     5     19    1.739927     5_cup_football_5xnoicio7v_futbol
-     6     18    1.648352        6_nigeria_abuja_nigerian_lack
+ Topic  Count  Percentage                                      Name
+     0    696   38.053581                   0_ai_business_like_tech
+    -1    363   19.846911   -1_somalia_government_people_somaliland
+     1    121    6.615637           1_fifaworldcup_bafana_south_cup
+     2    104    5.686167     2_somalia_somaliland_somali_mogadishu
+     3     69    3.772553  3_war_military_pride_ctwpride2026xyinwar
+     4     63    3.444505   4_somaliland_israel_president_jerusalem
+     5     52    2.843084             5_stock_stocks_daily_anitaoh8
+     6     42    2.296337        6_election_politics_know_political
+     7     35    1.913614    7_somalia_development_uae_partnerships
+     8     32    1.749590            8_trump_donald_president_worst
+     9     29    1.585566               9_iran_war_israel_palestine
+    10     25    1.366867 10_venezuela_earthquake_earthquakes_ready
+    11     25    1.366867    11_political_somalia_opposition_reform
+    12     22    1.202843             12_ukraine_russian_russia_war
+    13     19    1.038819            13_nigeria_abuja_lack_nigerian
+    14     17    0.929470               14_prices_economy_fx_petrol
+    15     17    0.929470       15_mexico_quiñones_mateo_classified
+    16     17    0.929470       16_forces_clashes_reportedly_update
+    17     16    0.874795 17_congress_emergency_democratic_chapters
+    18     16    0.874795             18_president_kenya_talks_ruto
+    19     14    0.765446   19_humanitarian_funding_water_savelives
+    20     13    0.710771           20_muslim_ilhan_first_ilhanomar
+    21     12    0.656096              21_mohamed_meeting_awdal_met
+    22     10    0.546747          22_government_wake_take_protests
 
 ==================================================

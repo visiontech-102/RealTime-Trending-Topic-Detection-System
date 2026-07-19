@@ -34,7 +34,7 @@ REPORTS_DIR = API_ROOT / "reports" / "nmf"
 MIN_CORPUS_SIZE = int(os.getenv("LDA_MIN_CORPUS_SIZE", "1000"))
 CORPUS_LIMIT = int(os.getenv("LDA_CORPUS_LIMIT", "2000"))
 RUN_GRID_SEARCH = os.getenv("LDA_GRID_SEARCH", "true").lower() == "true"
-TOPIC_RANGE = [5, 8, 10, 12]  # SAME candidate range as LDA's grid search
+TOPIC_RANGE = list(range(4, 13))  # [4..12] dense range — finds true optimal K, same as LDA
 NEW_TWEETS_THRESHOLD = int(os.getenv("LDA_NEW_TWEETS_THRESHOLD", "1000"))  # reuses LDA env var
 
 # _tokenize_corpus is imported from jobs.lda_pipeline (not duplicated) so

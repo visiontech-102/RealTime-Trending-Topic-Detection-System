@@ -21,7 +21,7 @@ class TweetCollector:
         else:
             logger.warning("No Twitter Bearer Token found in environment. Ingestion will rely on placeholder/manual entries.")
 
-    async def ingest_tweet(self, tweet_id: str, text: str, lang: str, created_at: datetime, metrics: dict = None):
+    async def ingest_tweet(self, tweet_id: str, text: str, lang: str, created_at: datetime, metrics: dict = None) -> bool:
         """
         Ingests a raw tweet as unstructured text, preserving original content
         and temporal metadata, and saves it into the database.
@@ -53,9 +53,11 @@ class TweetCollector:
 
         try:
             await raw_tweets_collection.insert_one(tweet_doc)
-            logger.info(f"Successfully ingested raw tweet: {tweet_id}")  # ← ku dar
+            logger.info(f"Successfully ingested raw tweet: {tweet_id}")
+            return True
         except DuplicateKeyError:
             logger.debug(f"Duplicate skipped: {tweet_id}")
+            return False
         except Exception as e:
             logger.error(f"REAL ERROR for tweet {tweet_id}: {e}")
             raise
@@ -91,16 +93,20 @@ async def run_data_collection_pipeline(collector: TweetCollector, query_list: li
     and ingests raw tweets into the MongoDB database.
     """
     logger.info("Starting Data Collection Pipeline...")
+    ingested = 0
     for query in query_list:
         logger.info(f"Querying: '{query}'")
         tweets = await collector.fetch_recent_tweets(query, max_results=limit_per_query)
         for tweet in tweets:
             # Preserving raw unstructured text, language code, and temporal metadata
-            await collector.ingest_tweet(
+            saved = await collector.ingest_tweet(
                 tweet_id=str(tweet.id),
                 text=tweet.text,
                 lang=tweet.lang,
                 created_at=tweet.created_at,
                 metrics=tweet.public_metrics,
             )
+            if saved:
+                ingested += 1
     logger.info("Data Collection Ingestion Cycle Completed.")
+    return ingested

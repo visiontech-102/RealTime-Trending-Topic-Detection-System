@@ -55,6 +55,26 @@ def dominant_language(langs: Iterable[str]) -> dict:
     return counts
 
 
+def assign_topic_lang(langs) -> str:
+    """
+    Assign a single language to a topic using the 70% majority rule.
+    Only 'en' and 'so' are counted; other lang codes are ignored.
+    Returns 'en' or 'so'. Ties or near-ties go to the larger group.
+    If no recognised languages exist, defaults to 'en'.
+    """
+    en = sum(1 for l in langs if l == "en")
+    so = sum(1 for l in langs if l == "so")
+    total = en + so
+    if total == 0:
+        return "en"
+    if en / total >= 0.70:
+        return "en"
+    if so / total >= 0.70:
+        return "so"
+    # Neither reaches 70% — simple majority; tie goes to "en"
+    return "en" if en >= so else "so"
+
+
 def generate_topic_label(keywords: list, n: int = 3) -> str:
     cleaned = clean_keywords(keywords) if keywords else []
     if not cleaned:

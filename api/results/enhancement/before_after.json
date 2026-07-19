@@ -1,0 +1,41 @@
+{
+  "winner": "bertopic",
+  "generated_at": "2026-06-23T19:42:53.129489+00:00",
+  "baseline": {
+    "mean_c_v": 0.4454,
+    "mean_diversity": 0.8072
+  },
+  "enhanced": {
+    "mean_c_v": 0.4509,
+    "mean_diversity": 0.8054
+  },
+  "delta_c_v": 0.0055,
+  "delta_diversity": -0.0018,
+  "adopted": true,
+  "adopted_config": {
+    "min_cluster_size": 14
+  },
+  "all_candidates": [
+    {
+      "config": {
+        "min_cluster_size": 14
+      },
+      "mean_c_v": 0.4509,
+      "mean_diversity": 0.8054
+    },
+    {
+      "config": {
+        "min_cluster_size": 10
+      },
+      "mean_c_v": 0.4454,
+      "mean_diversity": 0.8072
+    },
+    {
+      "config": {
+        "min_cluster_size": 12
+      },
+      "mean_c_v": 0.4294,
+      "mean_diversity": 0.7927
+    }
+  ]
+}

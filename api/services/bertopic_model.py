@@ -61,7 +61,7 @@ class BERTopicTrainer:
             umap_model=self.umap_model,
             hdbscan_model=self.hdbscan_model,
             vectorizer_model=self.vectorizer_model,
-            nr_topics="None", 
+            nr_topics=None,
             calculate_probabilities=True
         )
         self.is_fitted = False

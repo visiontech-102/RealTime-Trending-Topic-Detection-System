@@ -61,10 +61,9 @@ const Tweets = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 md:gap-0 mb-6 w-full">
         <div>
           <h1 className="text-3xl font-extrabold text-brand-primary dark:text-white mb-2 flex items-center gap-3">
-            <XIcon className="text-slate-900 dark:text-white" size={32} />
+            <XIcon className="text-brand-primary dark:text-white" size={32} />
             Raw Tweets
           </h1>
-          <p className="text-slate-500 dark:text-slate-200">Live stream of raw tweets from the ingestion engine.</p>
         </div>
         <div className="flex flex-col items-end gap-3 w-full md:w-auto">
           <DateFilter />
@@ -84,7 +83,7 @@ const Tweets = () => {
               <button 
                 key={f.id} 
                 onClick={() => setFilter(f.id)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${filter === f.id ? 'bg-brand-secondary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-colors ${filter === f.id ? 'bg-brand-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-brand-primary dark:text-slate-300 hover:bg-brand-primary hover:text-white dark:hover:bg-brand-secondary dark:hover:text-slate-900'}`}
               >
                 {f.label}
               </button>
@@ -95,7 +94,7 @@ const Tweets = () => {
         {loading && tweets.length === 0 ? (
           <div className="py-10 text-center text-slate-500 dark:text-slate-400 text-sm font-bold">Loading real-time tweets...</div>
         ) : tweets.length === 0 ? (
-          <div className="py-10 text-center text-slate-500 dark:text-slate-400 text-sm font-bold">No tweets ingested yet. Ensure background stream is active.</div>
+          <div className="py-10 text-center text-slate-500 dark:text-slate-400 text-xs italic">No tweets available for the selected period.</div>
         ) : (
           <div className="overflow-x-auto w-full">
             <div className="min-w-[700px] w-full">
@@ -112,7 +111,7 @@ const Tweets = () => {
                     className="grid grid-cols-12 items-center py-4 border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors px-2 rounded-xl"
                   >
                     <div className="col-span-8 pl-4 pr-12 flex items-start gap-3">
-                      <MessageSquare className="text-slate-300 mt-1 flex-shrink-0" size={18} />
+                      <MessageSquare className="text-brand-secondary/50 mt-1 flex-shrink-0" size={18} />
                       <div>
                         <div className="text-[14px] font-medium text-slate-800 dark:text-slate-200">{t.text}</div>
                         <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">ID: {t.tweet_id}</div>

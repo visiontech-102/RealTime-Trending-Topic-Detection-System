@@ -57,22 +57,20 @@ async def init_db_indexes():
 
 
 async def deduplicate_existing_trends():
-    """Remove duplicate detected_trends documents, keeping the latest (by calculated_at) for each Name."""
-    from datetime import datetime
+    """Remove duplicate detected_trends documents within the same training batch.
+
+    Groups by (Name, calculated_at) so historical batches are preserved across
+    training runs — only exact duplicates inside the same batch are removed.
+    """
     db = await get_database()
     coll = db["detected_trends"]
 
     pipeline = [
         {
             "$group": {
-                "_id": "$Name",
+                "_id": {"name": "$Name", "batch": "$calculated_at"},
                 "count": {"$sum": 1},
-                "docs": {
-                    "$push": {
-                        "id": "$_id",
-                        "calculated_at": "$calculated_at"
-                    }
-                }
+                "docs": {"$push": {"id": "$_id"}},
             }
         },
         {"$match": {"count": {"$gt": 1}}},
@@ -81,9 +79,7 @@ async def deduplicate_existing_trends():
     cursor = coll.aggregate(pipeline)
     deleted_count = 0
     async for group in cursor:
-        docs = group["docs"]
-        docs.sort(key=lambda d: d.get("calculated_at") or datetime.min, reverse=True)
-        to_delete_ids = [d["id"] for d in docs[1:]]
+        to_delete_ids = [d["id"] for d in group["docs"][1:]]
         if to_delete_ids:
             res = await coll.delete_many({"_id": {"$in": to_delete_ids}})
             deleted_count += res.deleted_count

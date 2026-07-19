@@ -39,11 +39,18 @@ async def main():
     
     # Standard query list from app/main.py
     queries = [
-        "(dowladda OR xukuumada OR doorasho OR baarlamaanka OR madaxweyne OR raysalwasaare OR wasiir OR siyaasad OR golaha OR dastuurka OR xildhibaan) -is:retweet -is:reply",
-        "(amniga OR dagaal OR weerar OR ciidamada OR alshabaab OR qarax OR nabadgelyo OR howlgal OR argagixiso OR difaaca) -is:retweet -is:reply",
-        "(dhaqaalaha OR ganacsiga OR lacagta OR suuqa OR shacabka OR gargaar OR abaaraha OR barakac OR caafimaad OR waxbarasho OR kubadda) -is:retweet -is:reply",
-        "(#Soomaaliya OR #Somalia OR #SomaliTwitter OR #Muqdisho OR #Mogadishu OR #Somaliland OR #Puntland OR #Galmudug OR #Hirshabelle OR #Koofurgalbeed OR #Jubaland OR #Banadir OR #Villasomalia) -is:retweet -is:reply",
+        "(president OR parliament OR election OR democracy OR coup OR treaty OR diplomacy OR referendum OR geopolitics OR veto OR coalition OR impeachment OR sanctions OR bilateral OR legislation) lang:en -is:retweet -is:reply",
+        "(war OR ceasefire OR airstrike OR military OR NATO OR terrorism OR siege OR nuclear OR missile OR insurgency OR occupation OR peacekeeping OR frontline OR offensive OR troops) lang:en -is:retweet -is:reply",
+        "(economy OR inflation OR recession OR GDP OR market OR trade OR currency OR IMF OR breaking OR crisis OR summit OR soccer OR football OR goal OR tournament OR FIFA OR WorldCup) lang:en -is:retweet -is:reply",
+        "(#WorldCup2026 OR #FIFAWorldCup OR #BreakingNews OR #ClimateChange OR #NATO OR #G7 OR #GlobalNews OR #Election2026 OR #Gaza OR #Ukraine OR #HumanRights OR #Economy OR #Earthquake OR #Refugee) lang:en -is:retweet -is:reply",
     ]
+
+    # queries = [
+    #     "(dowladda OR xukuumada OR doorasho OR baarlamaanka OR madaxweyne OR raysalwasaare OR wasiir OR siyaasad OR golaha OR dastuurka OR xildhibaan) -is:retweet -is:reply",
+    #     "(amniga OR dagaal OR weerar OR ciidamada OR alshabaab OR qarax OR nabadgelyo OR howlgal OR argagixiso OR difaaca) -is:retweet -is:reply",
+    #     "(dhaqaalaha OR ganacsiga OR lacagta OR suuqa OR shacabka OR gargaar OR abaaraha OR barakac OR caafimaad OR waxbarasho OR kubadda) -is:retweet -is:reply",
+    #     "(#Soomaaliya OR #Somalia OR #SomaliTwitter OR #Muqdisho OR #Mogadishu OR #Somaliland OR #Puntland OR #Galmudug OR #Hirshabelle OR #Koofurgalbeed OR #Jubaland OR #Banadir OR #Villasomalia) -is:retweet -is:reply",
+    # ]
     
     print(f"Starting data collection for {len(queries)} queries...")
     try:

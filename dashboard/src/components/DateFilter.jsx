@@ -10,7 +10,7 @@ const formatDateForInput = (dateStr) => {
   return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${d.getFullYear()}`;
 };
 
-const CustomNativePicker = ({ value, onChange, min, onClose }) => {
+const CustomNativePicker = ({ value, onChange, min, onClose, align = 'left' }) => {
   const [viewDate, setViewDate] = useState(value ? new Date(value) : new Date());
 
   const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
@@ -82,7 +82,7 @@ const CustomNativePicker = ({ value, onChange, min, onClose }) => {
   };
 
   return (
-    <div className="absolute top-12 left-0 w-64 bg-white dark:bg-slate-900 border border-brand-secondary/30 rounded-md shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95">
+    <div className={`absolute top-12 ${align === 'right' ? 'right-0' : 'left-0'} w-64 bg-white dark:bg-slate-900 border border-brand-secondary/30 rounded-md shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95`}>
       {/* Header Month / Arrows */}
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-brand-primary dark:text-white font-bold cursor-pointer hover:text-brand-secondary flex items-center gap-1">
@@ -223,11 +223,12 @@ const DateFilter = () => {
                     <CalendarIcon size={16} className={`${activePicker === 'end' ? 'text-brand-secondary' : 'text-slate-400'}`} />
                   </div>
                   {activePicker === 'end' && (
-                    <CustomNativePicker 
-                      value={tempEnd} 
-                      min={tempStart} 
-                      onChange={setTempEnd} 
-                      onClose={() => setActivePicker(null)} 
+                    <CustomNativePicker
+                      value={tempEnd}
+                      min={tempStart}
+                      onChange={setTempEnd}
+                      onClose={() => setActivePicker(null)}
+                      align="right"
                     />
                   )}
                 </div>

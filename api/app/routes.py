@@ -1,10 +1,11 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
-from fastapi.responses import FileResponse
 from pathlib import Path
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 import os
+import re as _re_routes
 from pydantic import BaseModel
 
 from db.connection import get_database
@@ -256,6 +257,13 @@ async def trigger_nmf_training(current_user: dict = Depends(get_current_user)):
     return await run_nmf_pipeline()
 
 
+@router.post("/jobs/run-deployment")
+async def trigger_deployment(current_user: dict = Depends(get_current_user)):
+    """Run deployed model — trains only if ≥ BERTOPIC_NEW_TWEETS_THRESHOLD new tweets exist."""
+    from jobs.deployment import run_deployed_pipeline
+    return await run_deployed_pipeline()
+
+
 @router.post("/jobs/run-comparison")
 async def trigger_model_comparison(current_user: dict = Depends(get_current_user)):
     """Run three-way metrics-driven comparison of LDA, NMF, and BERTopic."""
@@ -285,27 +293,121 @@ async def get_model_comparison(db=Depends(get_database)):
     )
 
 
-_API_ROOT = Path(__file__).resolve().parent.parent
-_VIZ_DIR = _API_ROOT / "artifacts" / "visualizations"
+@router.get("/models/winner")
+async def get_winner_model(db=Depends(get_database)):
+    """Return the currently deployed (winning) model and its selection metadata."""
+    from jobs.deployment import get_deployed_model
+    deployed = await get_deployed_model()
+    if deployed is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No model deployed yet. Evaluation runs automatically after enough tweets are collected.",
+        )
+    state = await db["pipeline_state"].find_one({"pipeline": "deployed_model"})
+    set_at = state.get("set_at") if state else None
 
+    comparison_state = await db["pipeline_state"].find_one({"pipeline": "model_comparison"})
+    metric_scores = None
+    if comparison_state and comparison_state.get("report"):
+        metric_scores = comparison_state["report"].get("model_metric_scores")
 
-@router.get("/visualizations/{model}")
-async def get_visualization(model: str):
-    """Serve pyLDAvis (lda) or BERTopic (bertopic) HTML artifacts."""
-    files = {
-        "lda": _VIZ_DIR / "lda_intertopic.html",
-        "bertopic": _VIZ_DIR / "bertopic_intertopic.html",
+    return {
+        "deployed_model": deployed,
+        "set_at": set_at,
+        "metric_scores": metric_scores,
     }
-    path = files.get(model.lower())
-    if not path or not path.exists():
-        raise HTTPException(status_code=404, detail=f"Visualization for '{model}' not generated yet.")
-    return FileResponse(path, media_type="text/html")
+
+
+@router.get("/models/status")
+async def get_model_status(db=Depends(get_database)):
+    """Current deployed model with operational metrics, prev delta, and evaluation comparison."""
+    bertopic_state, deployed_state, comparison_state = await asyncio.gather(
+        db["pipeline_state"].find_one({"pipeline": "bertopic"},          {"_id": 0}),
+        db["pipeline_state"].find_one({"pipeline": "deployed_model"},    {"_id": 0}),
+        db["pipeline_state"].find_one({"pipeline": "model_comparison"},  {"_id": 0}),
+    )
+    if not bertopic_state and not deployed_state:
+        return {"status": "no_data"}
+
+    report = (comparison_state or {}).get("report") or {}
+    return {
+        "deployed_model":   deployed_state.get("model") if deployed_state else "bertopic",
+        "set_at":           deployed_state.get("set_at") if deployed_state else None,
+        "last_run_at":      (bertopic_state or {}).get("last_run_at"),
+        "topics_written":   (bertopic_state or {}).get("topics_written", 0),
+        "last_trained_tweet_collected_at": (bertopic_state or {}).get("last_trained_tweet_collected_at"),
+        # Operational BERTopic-internal metrics (corpus size, num_topics, outlier_ratio)
+        "metrics":          (bertopic_state or {}).get("metrics"),
+        "prev_metrics":     (bertopic_state or {}).get("prev_metrics"),
+        # Evaluation metrics — c_v / diversity per model per language (used for winner selection)
+        "eval_metrics": {
+            "bertopic": report.get("bertopic_metrics"),
+            "lda":      report.get("lda_metrics"),
+            "nmf":      report.get("nmf_metrics"),
+        },
+        "model_scores":  report.get("model_metric_scores"),
+        "winner_rule":   report.get("winner_selection_rule"),
+        "evaluated_at":  report.get("generated_at"),
+    }
+
+
+@router.get("/models/history")
+async def get_model_history(
+    limit: int = 20,
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
+    db=Depends(get_database),
+):
+    """Training run history from pipeline_history collection."""
+    query: dict = {"pipeline": "bertopic"}
+    if from_date or to_date:
+        time_filter = {}
+        if from_date:
+            time_filter["$gte"] = _parse_iso_datetime(from_date)
+        if to_date:
+            time_filter["$lte"] = _parse_iso_datetime(to_date)
+        query["trained_at"] = time_filter
+    cursor = db["pipeline_history"].find(query, {"_id": 0}).sort("trained_at", -1).limit(limit)
+    records = await cursor.to_list(length=limit)
+    return records
+
+
+@router.post("/jobs/run-evaluation")
+async def trigger_full_evaluation(
+    force: bool = False,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Manually trigger three-way evaluation, select winner, and deploy (authenticated).
+    Pass ?force=true to bypass the new-data guard and re-evaluate on existing corpus.
+    """
+    from jobs.evaluation_pipeline import run_full_evaluation
+    return await run_full_evaluation(force=force)
+
 
 
 # --- ADAPTER ROUTES FOR FRONTEND COMPATIBILITY ---
 
 def _parse_iso_datetime(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+_URL_RE = _re_routes.compile(r'https?://\S+')
+
+def _dedup_docs(docs: list) -> list:
+    """Return up to 3 docs, deduplicating by URL-stripped text."""
+    seen: set = set()
+    result: list = []
+    for d in docs:
+        if not d:
+            continue
+        norm = _URL_RE.sub('', d).strip()
+        if norm not in seen:
+            seen.add(norm)
+            result.append(d)
+            if len(result) == 3:
+                break
+    return result
 
 
 def adapt_trend_to_frontend(t: dict, requested_lang: str):
@@ -315,10 +417,14 @@ def adapt_trend_to_frontend(t: dict, requested_lang: str):
         "topic_name": t.get("Name", "Unknown Topic"),
         "label": t.get("label", t.get("Name", "Unknown Topic")),
         "top_keywords": t.get("Representation", []),
-        "representative_docs": list(dict.fromkeys(d for d in t.get("representative_docs", []) if d))[:10],
+        "representative_docs": _dedup_docs(t.get("representative_docs", [])),
         "score": t.get("trend_score", 0.0),
-        "language": ", ".join(l for l in t.get("lang", [requested_lang]) if l in ("en", "so")),
-        "timestamp": t.get("calculated_at", datetime.utcnow())
+        "volume": t.get("volume", 0),
+        "language": t.get("lang") if t.get("lang") in ("en", "so") else requested_lang,
+        "timestamp": t.get("tweet_period_to") or t.get("calculated_at", datetime.utcnow()),
+        "tweet_period_from": t.get("tweet_period_from"),
+        "tweet_period_to": t.get("tweet_period_to"),
+        "model": t.get("model"),
     }
 
 @router.get("/trends")
@@ -330,11 +436,30 @@ async def get_trends(
     db=Depends(get_database),
 ):
     """Fetch trends: latest batch by default, or filtered by date range."""
+    from jobs.deployment import get_deployed_model
+    deployed = await get_deployed_model()
+    if deployed is None:
+        return []
+
     trends_collection = db["detected_trends"]
 
-    query = {}
+    # Check whether the winning model has topics written yet.
+    # If deployment hasn't completed after a fresh evaluation (brief race window),
+    # fall back to the most-recently-written topics from any model so the frontend
+    # never returns an empty list while data exists in the collection.
+    winner_has_data = await trends_collection.find_one({"model": deployed})
+    effective_model = deployed if winner_has_data else None
+    if effective_model is None:
+        any_trend = await trends_collection.find_one({}, sort=[("calculated_at", -1)])
+        if not any_trend:
+            return []
+        effective_model = any_trend.get("model", deployed)
+
+    query = {"model": effective_model}
     if lang in ("en", "so"):
-        query["lang"] = {"$in": [lang, "mixed"]}
+        query["lang"] = lang
+
+    import re as _re
 
     if from_date or to_date:
         time_filter = {}
@@ -342,20 +467,20 @@ async def get_trends(
             time_filter["$gte"] = _parse_iso_datetime(from_date)
         if to_date:
             time_filter["$lte"] = _parse_iso_datetime(to_date)
-        query["calculated_at"] = time_filter
+        query["peak_at"] = time_filter
+        cursor = trends_collection.find(query).sort("trend_score", -1).limit(limit * 5)
+        trends = await cursor.to_list(length=limit * 5)
     else:
-        latest_trend = await trends_collection.find_one(sort=[("calculated_at", -1)])
-        if not latest_trend:
-            return []
-        query["calculated_at"] = latest_trend["calculated_at"]
+        # No date filter: fetch all batches sorted newest-batch-first then by score.
+        # Dedup below keeps the most-recent version of each topic Name across batches.
+        fetch_limit = max(limit * 20, 500)
+        cursor = trends_collection.find(query).sort(
+            [("calculated_at", -1), ("trend_score", -1)]
+        ).limit(fetch_limit)
+        trends = await cursor.to_list(length=fetch_limit)
 
-    cursor = trends_collection.find(query).sort("trend_score", -1).limit(limit)
-    trends = await cursor.to_list(length=limit)
-
-    # Defensive dedup: strip numeric prefix (e.g. "5_madaxweyne" -> "madaxweyne")
-    # so renamed variants from old runs collapse to the same key. Score-sorted results
-    # mean the first occurrence is always the highest-scoring one.
-    import re as _re
+    # Dedup: strip numeric prefix so "0_war_ukraine" and "3_war_ukraine" collapse to
+    # "war_ukraine". First occurrence wins — newest batch (sorted above) comes first.
     seen: set = set()
     deduped: list = []
     for t in trends:
@@ -364,7 +489,7 @@ async def get_trends(
             seen.add(word_key)
             deduped.append(t)
 
-    return [adapt_trend_to_frontend(t, lang) for t in deduped]
+    return [adapt_trend_to_frontend(t, lang) for t in deduped[:limit]]
 
 @router.get("/history")
 async def get_history(
@@ -382,7 +507,7 @@ async def get_history(
     if topic_name:
         query["Name"] = {"$regex": topic_name, "$options": "i"}
     if lang in ("en", "so"):
-        query["lang"] = {"$in": [lang, "mixed"]}
+        query["lang"] = lang
 
     if from_date or to_date:
         time_filter = {}
@@ -390,9 +515,9 @@ async def get_history(
             time_filter["$gte"] = _parse_iso_datetime(from_date)
         if to_date:
             time_filter["$lte"] = _parse_iso_datetime(to_date)
-        query["calculated_at"] = time_filter
+        query["peak_at"] = time_filter
 
-    cursor = trends_collection.find(query).sort("calculated_at", -1).limit(limit)
+    cursor = trends_collection.find(query).sort("peak_at", -1).limit(limit)
     trends = await cursor.to_list(length=limit)
     return [adapt_trend_to_frontend(t, lang) for t in trends]
 

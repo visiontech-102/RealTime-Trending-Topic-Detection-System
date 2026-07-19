@@ -18,6 +18,8 @@ export function rangeToQueryParams(range, customDates = {}) {
       from_date: start.toISOString(),
       to_date: end.toISOString(),
     };
+  } else if (range === 'all' || range === 'ALL') {
+    return {};
   } else {
     from.setHours(from.getHours() - 24);
   }

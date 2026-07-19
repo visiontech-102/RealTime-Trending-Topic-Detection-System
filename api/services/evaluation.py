@@ -27,7 +27,10 @@ from gensim.models.coherencemodel import CoherenceModel
 logger = logging.getLogger(__name__)
 
 TOP_N_WORDS = 10  # SAME top-word count used for every model and every language slice
-LANGUAGES = ("en", "so", "combined")
+# Option B evaluation: en and so only — combined is not an independent measurement
+# (it merges both language slices and is excluded to avoid double-counting and
+# inflating bag-of-words models with cross-lingual TF-IDF signal).
+LANGUAGES = ("en", "so")
 
 
 def build_reference_corpora(df: pd.DataFrame, text_col: str = "text", lang_col: str = "lang_api") -> dict:
@@ -175,12 +178,30 @@ def get_nmf_topics(trainer, num_words: int = TOP_N_WORDS) -> list:
 
 def get_bertopic_topics(topic_model, num_words: int = TOP_N_WORDS) -> list:
     """
-    Top-word lists for every BERTopic topic, excluding the -1 outlier topic
-    (same convention as BERTopicTrainer.calculate_topic_diversity). Accepts
-    any object exposing BERTopic's get_topics()/get_topic() interface.
+    Top-word lists for every BERTopic topic, excluding the -1 outlier topic.
+
+    Keywords are normalized to match the preprocess_lda() reference corpus
+    vocabulary (lowercase, alphabetic characters only) so that BERTopic words
+    are not systematically filtered as OOV during _filter_topics_to_vocab().
+    Without this, BERTopic topic words from the lighter preprocess_bertopic()
+    pipeline (e.g. mixed-case, punctuation-bearing) fail to match the
+    preprocess_lda()-built reference dictionary, disadvantaging BERTopic in
+    C_v scoring relative to LDA and NMF.
     """
+    from services.trend_scoring import clean_keywords
+
+    def _normalize(word: str) -> str:
+        """Lowercase and keep only alphabetic chars — matches preprocess_lda() token form."""
+        return "".join(c for c in word.lower() if c.isalpha())
+
     topic_ids = [tid for tid in topic_model.get_topics().keys() if tid != -1]
-    return [[w for w, _ in topic_model.get_topic(tid)[:num_words]] for tid in topic_ids]
+    topics = []
+    for tid in topic_ids:
+        raw = [w for w, _ in topic_model.get_topic(tid)[:num_words]]
+        cleaned = clean_keywords(raw)
+        normalized = [n for w in cleaned if (n := _normalize(w))]
+        topics.append(normalized)
+    return topics
 
 
 def save_metrics_table(rows: list, metrics_dir: Path) -> dict:

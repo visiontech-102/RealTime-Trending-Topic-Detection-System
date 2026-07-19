@@ -86,7 +86,7 @@ const buildDateQuery = (dateParams = {}) => {
 };
 
 export const getTrends = async (lang = 'en', dateParams = {}) => {
-  const response = await api.get(`/trends?lang=${lang}${buildDateQuery(dateParams)}`);
+  const response = await api.get(`/trends?lang=${lang}&limit=50${buildDateQuery(dateParams)}`);
   return response.data;
 };
 
@@ -150,6 +150,16 @@ export const getTrendingKeywords = async (dateParams = {}) => {
 
 export const getTweetStats = async (dateParams = {}) => {
   const response = await api.get(`/tweets/stats?${buildDateQuery(dateParams).replace(/^&/, '')}`);
+  return response.data;
+};
+
+export const getModelStatus = async () => {
+  const response = await api.get('/models/status');
+  return response.data;
+};
+
+export const getModelHistory = async (limit = 20, dateParams = {}) => {
+  const response = await api.get(`/models/history?limit=${limit}${buildDateQuery(dateParams)}`);
   return response.data;
 };
 

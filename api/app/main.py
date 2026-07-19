@@ -10,8 +10,6 @@ load_dotenv()
 from app.routes import router
 from db.connection import init_db_indexes, get_database, close_db_client, deduplicate_existing_trends
 from services.data_collection import TweetCollector, run_data_collection_pipeline
-from jobs.bertopic_pipeline import run_bertopic_pipeline
-from jobs.model_comparison import run_model_comparison
 from services.notifications import send_daily_digests
 
 BACKGROUND_TASKS: list[asyncio.Task] = []
@@ -25,16 +23,16 @@ async def periodic_data_collection_loop(app: FastAPI):
         return
 
     collector = TweetCollector(bearer_token=bearer_token)
-    queries = [  
-             # 1 — Siyaasad & dowlad
-             "(dowladda OR xukuumada OR doorasho OR baarlamaanka OR madaxweyne OR raysalwasaare OR wasiir OR siyaasad OR musharraxa OR xisbiga OR golaha OR dastuurka OR xildhibaan ) -is:retweet -is:reply",
-             # 2 — Amni & dagaal
-             "(amniga OR dagaal OR weerar OR warar OR wareysi OR ciidamada OR alshabaab OR qarax OR nabadgelyo OR howlgal OR argagixiso OR difaaca OR magaalada OR burbur) -is:retweet -is:reply",
-             # 3 — Dhaqaale, bulsho & gargaar
-             "(dhaqaalaha OR ganacsiga OR lacagta OR suuqa OR shacabka OR gargaar OR abaaraha OR barakac OR caafimaad OR waxbarasho OR kubadda OR ciyaaraha OR koobka OR adduunka OR bulsho OR heshiis OR qabiil OR  ) -is:retweet -is:reply",
-             # 4 — Hashtag & gobollo
-             "(#Soomaaliya OR #Somalia OR #SomaliTwitter OR #Muqdisho OR #Mogadishu OR #Somaliland OR #Puntland OR #Galmudug OR #Hirshabelle OR #Koofurgalbeed OR #Jubaland OR #Banadir OR #Villasomalia) -is:retweet -is:reply",
-    ]
+    # queries = [  
+    #          # 1 — Siyaasad & dowlad
+    #          "(dowladda OR xukuumada OR doorasho OR baarlamaanka OR madaxweyne OR raysalwasaare OR wasiir OR siyaasad OR musharraxa OR xisbiga OR golaha OR dastuurka OR xildhibaan ) -is:retweet -is:reply",
+    #          # 2 — Amni & dagaal
+    #          "(amniga OR dagaal OR weerar OR warar OR wareysi OR ciidamada OR alshabaab OR qarax OR nabadgelyo OR howlgal OR argagixiso OR difaaca OR magaalada OR burbur) -is:retweet -is:reply",
+    #          # 3 — Dhaqaale, bulsho & gargaar
+    #          "(dhaqaalaha OR ganacsiga OR lacagta OR suuqa OR shacabka OR gargaar OR abaaraha OR barakac OR caafimaad OR waxbarasho OR kubadda OR ciyaaraha OR koobka OR adduunka OR bulsho OR heshiis OR qabiil OR  ) -is:retweet -is:reply",
+    #          # 4 — Hashtag & gobollo
+    #          "(#Soomaaliya OR #Somalia OR #SomaliTwitter OR #Muqdisho OR #Mogadishu OR #Somaliland OR #Puntland OR #Galmudug OR #Hirshabelle OR #Koofurgalbeed OR #Jubaland OR #Banadir OR #Villasomalia) -is:retweet -is:reply",
+    # ]
 
     while True:
         try:
@@ -53,41 +51,76 @@ async def periodic_data_collection_loop(app: FastAPI):
             app.state.session_ingested_count += ingested
 
             print(f"INFO: Ingestion cycle complete. Newly ingested: {ingested}. Session total count: {app.state.session_ingested_count}/{app.state.max_quota_limit}")
+
+            if ingested > 0:
+                try:
+                    from jobs.deployment import get_deployed_model, run_deployed_pipeline
+                    deployed = await get_deployed_model()
+                    if deployed:
+                        threshold = int(os.getenv("BERTOPIC_NEW_TWEETS_THRESHOLD", "500"))
+                        db_inst = await get_database()
+                        state = await db_inst["pipeline_state"].find_one({"pipeline": deployed})
+                        last_ts = state.get("last_trained_tweet_collected_at") if state else None
+                        if last_ts:
+                            new_count = await db_inst["raw_tweets"].count_documents({"collected_at": {"$gt": last_ts}})
+                            if new_count >= threshold:
+                                deploy_result = await run_deployed_pipeline()
+                                print(f"Post-collection deployment: {deploy_result}")
+                            else:
+                                print(f"Post-collection: {new_count}/{threshold} new tweets — deployment skipped")
+                        else:
+                            deploy_result = await run_deployed_pipeline()
+                            print(f"Post-collection deployment (first run): {deploy_result}")
+                except Exception as de:
+                    print(f"Post-collection deployment error (non-fatal): {de}")
         except Exception as e:
             print(f"Error in background data collection loop: {e}")
         await asyncio.sleep(15 * 60)
 
 
-async def periodic_bertopic_training_loop():
-    """Trains BERTopic on ingested corpus and writes detected_trends."""
-    interval_minutes = int(os.getenv("BERTOPIC_TRAIN_INTERVAL_MINUTES", "30"))
-    await asyncio.sleep(120)
-
-    while True:
-        try:
-            result = await run_bertopic_pipeline()
-            print(f"BERTopic training cycle: {result}")
-        except Exception as e:
-            print(f"Error in BERTopic training loop: {e}")
-        await asyncio.sleep(interval_minutes * 60)
-
 
 async def periodic_model_comparison_loop():
-    """Refresh comparison report after both pipelines have run."""
-    interval_hours = int(os.getenv("COMPARISON_INTERVAL_HOURS", "168"))
-    await asyncio.sleep(600)
+    """
+    One-time evaluation loop: runs the three-way evaluation ONCE to select the
+    initial winner, then exits permanently.
+
+    Once a winner is set it is never changed automatically — re-evaluation is
+    a manual academic decision (POST /jobs/run-evaluation?force=true).
+    If the corpus is too small the loop retries every 30 minutes until enough
+    data has been collected, then runs evaluation and exits.
+    """
+    retry_minutes = int(os.getenv("BERTOPIC_TRAIN_INTERVAL_MINUTES", "30"))
+    await asyncio.sleep(300)  # 5-min startup delay
 
     while True:
         try:
-            db = await get_database()
-            lda = await db["pipeline_state"].find_one({"pipeline": "lda"})
-            bertopic = await db["pipeline_state"].find_one({"pipeline": "bertopic"})
-            if lda and bertopic:
-                result = await run_model_comparison()
-                print(f"Model comparison cycle: {result.get('status')}")
+            from jobs.deployment import get_deployed_model, run_deployed_pipeline
+            deployed = await get_deployed_model()
+            if deployed is not None:
+                # Winner already determined — this loop's job is done.
+                print(f"INFO: Evaluation loop: winner '{deployed}' already set. Exiting — manual re-evaluation only.")
+                return
+
+            from jobs.evaluation_pipeline import run_full_evaluation
+            result = await run_full_evaluation()
+            status = result.get("status")
+            winner = result.get("deployed_model")
+            print(f"Initial evaluation: status={status}, winner={winner}")
+
+            if status == "success" and winner:
+                # Immediately write winner's topics so the frontend is not empty.
+                try:
+                    deploy_result = await run_deployed_pipeline()
+                    print(f"Post-evaluation deployment: {deploy_result}")
+                except Exception as de:
+                    print(f"Post-evaluation deployment error (non-fatal): {de}")
+                return  # Winner found — loop exits permanently.
+
+            # Not enough data yet — retry after interval.
+            await asyncio.sleep(retry_minutes * 60)
         except Exception as e:
-            print(f"Error in model comparison loop: {e}")
-        await asyncio.sleep(interval_hours * 3600)
+            print(f"Error in evaluation loop: {e}")
+            await asyncio.sleep(retry_minutes * 60)
 
 
 async def periodic_email_digest_loop():
@@ -129,8 +162,6 @@ async def lifespan(app: FastAPI):
 
     if db_connected:
         app.state.data_collection_task = _start_background_task(periodic_data_collection_loop(app))
-        _start_background_task(periodic_bertopic_training_loop())
-        _start_background_task(periodic_model_comparison_loop())
         _start_background_task(periodic_email_digest_loop())
 
     yield

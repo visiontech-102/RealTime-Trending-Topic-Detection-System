@@ -1,71 +1,69 @@
 {
-  "generated_at": "2026-06-02T10:09:21.952115+00:00",
+  "generated_at": "2026-06-27T08:32:04.351924+00:00",
   "selected_deployment_model": "bertopic",
-  "academic_note": "LDA retained as baseline per FYP Implementation Plan Part 6.",
-  "criteria_winner_count": {
-    "bertopic": 7,
-    "lda": 1
+  "winner_selection_basis": "intrinsic metrics",
+  "winner_selection_rule": "primary=English C_v (dominant language); tiebreak=Somali C_v; combined slice excluded (not independent)",
+  "model_metric_scores": {
+    "lda": {
+      "en_c_v": 0.3274,
+      "so_c_v": 0.3253,
+      "en_diversity": 0.4966,
+      "so_diversity": 0.5163
+    },
+    "nmf": {
+      "en_c_v": 0.5478,
+      "so_c_v": 0.4682,
+      "en_diversity": 0.8731,
+      "so_diversity": 0.8394
+    },
+    "bertopic": {
+      "en_c_v": 0.5508,
+      "so_c_v": 0.3932,
+      "en_diversity": 0.8255,
+      "so_diversity": 0.7396
+    }
   },
+  "academic_note": "Evaluation: C_v coherence and Topic Diversity scored separately on English and Somali slices of the same corpus. LDA and NMF are retained as baselines per FYP Implementation Plan Part 6.",
   "lda_metrics": {
-    "coherence_cv": 0.42,
-    "perplexity": -8.5,
-    "num_topics": 8
+    "en": {
+      "c_v": 0.3274,
+      "u_mass": -10.6787,
+      "diversity": 0.4966,
+      "K": 23
+    },
+    "so": {
+      "c_v": 0.3253,
+      "u_mass": -13.752,
+      "diversity": 0.5163,
+      "K": 23
+    }
+  },
+  "nmf_metrics": {
+    "en": {
+      "c_v": 0.5478,
+      "u_mass": -9.0876,
+      "diversity": 0.8731,
+      "K": 20
+    },
+    "so": {
+      "c_v": 0.4682,
+      "u_mass": -12.6962,
+      "diversity": 0.8394,
+      "K": 20
+    }
   },
   "bertopic_metrics": {
-    "semantic_cohesion": 0.48,
-    "topic_diversity": 0.9,
-    "outlier_ratio": 0.1
-  },
-  "lda_last_run": "2026-06-02 10:09:21.947000",
-  "bertopic_last_run": "2026-06-02 10:09:21.947000",
-  "criteria_comparison": [
-    {
-      "criterion": "Architecture",
-      "lda": "Generative Probabilistic (Gensim LDA)",
-      "bertopic": "Modular (Embeddings + UMAP + HDBSCAN + c-TF-IDF)",
-      "deployment_winner": "bertopic"
+    "en": {
+      "c_v": 0.5508,
+      "u_mass": -8.9593,
+      "diversity": 0.8255,
+      "K": 35
     },
-    {
-      "criterion": "Preprocessing",
-      "lda": "Heavy (lowercase, URL/@ removal, stopwords, tokenization)",
-      "bertopic": "Minimal (dedupe, preserve sentence structure)",
-      "deployment_winner": "bertopic"
-    },
-    {
-      "criterion": "Semantic Understanding",
-      "lda": "Low (BoW; coherence Cv=0.42)",
-      "bertopic": "High (transformer embeddings; cohesion=0.48)",
-      "deployment_winner": "bertopic"
-    },
-    {
-      "criterion": "Multilingual Capability (Somali)",
-      "lda": "Requires Somali stopwords (custom list used); no unified embedding space",
-      "bertopic": "Native multilingual MiniLM-L12-v2 (EN + SO unified space)",
-      "deployment_winner": "bertopic"
-    },
-    {
-      "criterion": "Short-Text Performance",
-      "lda": "Poor on sparse 280-char tweets (documented baseline limitation)",
-      "bertopic": "Optimised for short noisy social text",
-      "deployment_winner": "bertopic"
-    },
-    {
-      "criterion": "Real-Time Suitability",
-      "lda": "Low (predefined K, retraining cost)",
-      "bertopic": "High (DTM, dynamic c-TF-IDF, auto clusters)",
-      "deployment_winner": "bertopic"
-    },
-    {
-      "criterion": "Compute Requirements",
-      "lda": "Moderate CPU (matrix factorisation)",
-      "bertopic": "Higher (GPU recommended for embeddings)",
-      "deployment_winner": "lda"
-    },
-    {
-      "criterion": "Topic Novelty",
-      "lda": "Standard word co-occurrence topics (K=8)",
-      "bertopic": "Context-rich clusters (diversity=0.9, outliers=0.1)",
-      "deployment_winner": "bertopic"
+    "so": {
+      "c_v": 0.3932,
+      "u_mass": -14.1331,
+      "diversity": 0.7396,
+      "K": 35
     }
-  ]
+  }
 }
