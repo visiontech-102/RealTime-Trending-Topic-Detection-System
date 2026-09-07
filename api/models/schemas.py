@@ -1,6 +1,24 @@
-from pydantic import BaseModel, EmailStr, Field
+import re
+
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import List, Optional, Any
 from datetime import datetime
+
+# --- Password policy ---
+# Enforced server-side: the browser's minLength attribute is trivially bypassed
+# by calling the API directly, so it cannot be the only check.
+MIN_PASSWORD_LENGTH = 8
+
+
+def validate_password_strength(value: str) -> str:
+    if len(value) < MIN_PASSWORD_LENGTH:
+        raise ValueError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
+    if not re.search(r"[A-Za-z]", value):
+        raise ValueError("Password must contain at least one letter")
+    if not re.search(r"\d", value):
+        raise ValueError("Password must contain at least one number")
+    return value
+
 
 # Users
 class UserCreate(BaseModel):
@@ -8,11 +26,35 @@ class UserCreate(BaseModel):
     email: EmailStr
     password: str
 
+    @field_validator("password")
+    @classmethod
+    def _check_password(cls, v: str) -> str:
+        return validate_password_strength(v)
+
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
 
+    @field_validator("new_password")
+    @classmethod
+    def _check_new_password(cls, v: str) -> str:
+        return validate_password_strength(v)
+
 class TwoFactorVerifyRequest(BaseModel):
+    code: str
+
+class TwoFactorDisableRequest(BaseModel):
+    """
+    Re-authentication before switching 2FA off. Either proof is accepted:
+    the account password, or a fresh emailed code (for Google-provisioned
+    accounts, which have no password their owner knows).
+    """
+    password: Optional[str] = None
+    code: Optional[str] = None
+
+class TwoFactorLoginRequest(BaseModel):
+    """Second step of login: exchange a challenge token + emailed code for a real token."""
+    challenge_token: str
     code: str
 
 class TwoFactorStatusResponse(BaseModel):
@@ -34,6 +76,18 @@ class UserResponse(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+class LoginResponse(BaseModel):
+    """
+    Login result. When the account has 2FA enabled no access token is issued —
+    only a short-lived challenge token that is useless against any other endpoint.
+    """
+    access_token: Optional[str] = None
+    token_type: str = "bearer"
+    requires_2fa: bool = False
+    challenge_token: Optional[str] = None
+    # Populated only when TWO_FA_DEV_ECHO=true (offline demos). Never set in production.
+    dev_code: Optional[str] = None
 
 class TokenData(BaseModel):
     username: Optional[str] = None

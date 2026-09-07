@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # How many genuinely new tweets must have arrived before the deployed model
 # retrains. Overridable via env var so the user can tune without code changes.
-DEPLOYED_RETRAIN_THRESHOLD = int(os.getenv("DEPLOYED_MODEL_RETRAIN_THRESHOLD", "500"))
+DEPLOYED_RETRAIN_THRESHOLD = int(os.getenv("DEPLOYED_MODEL_RETRAIN_THRESHOLD", "1000"))
 
 
 # ---------------------------------------------------------------------------
@@ -383,11 +383,18 @@ def _build_trend_docs_nmf(
 # ---------------------------------------------------------------------------
 
 async def _run_lda_deployment() -> dict:
-    """Full LDA retrain cycle that writes output to detected_trends."""
+    """
+    Full LDA retrain cycle that writes output to detected_trends.
+
+    Retrain gate: only proceeds once >= DEPLOYED_RETRAIN_THRESHOLD genuinely
+    new tweets have arrived since the last retrain. Once gated open, training
+    always uses the FULL cumulative corpus (old + new, most recent
+    CORPUS_LIMIT tweets) — never just the incremental delta — so topic
+    quality doesn't degrade to whatever trickle of tweets arrived since last time.
+    """
     db = await get_database()
     state = await db["pipeline_state"].find_one({"pipeline": "lda"})
     last_ts = state.get("last_trained_tweet_collected_at") if state else None
-    corpus_after_timestamp = last_ts  # incremental by default — only new tweets
 
     if last_ts:
         new_count = await db["raw_tweets"].count_documents({"collected_at": {"$gt": last_ts}})
@@ -396,14 +403,12 @@ async def _run_lda_deployment() -> dict:
             if has_topics > 0:
                 logger.info("Skipping LDA: only %d new tweets (minimum %d required)", new_count, DEPLOYED_RETRAIN_THRESHOLD)
                 return {"status": "skipped", "reason": "insufficient_new_tweets", "new_tweets_count": new_count}
-            # has_topics == 0 — first deployment after evaluation, load full corpus once
-            corpus_after_timestamp = None
 
     count = await get_corpus_count()
     if count < MIN_CORPUS_SIZE:
         return {"status": "skipped", "reason": "insufficient_corpus", "corpus_count": count}
 
-    df = await load_tweet_corpus(lang=None, limit=CORPUS_LIMIT, after_timestamp=corpus_after_timestamp)
+    df = await load_tweet_corpus(lang=None, limit=CORPUS_LIMIT, after_timestamp=None)
     if df.empty:
         return {"status": "skipped", "reason": "empty_corpus"}
 
@@ -478,11 +483,17 @@ async def _run_lda_deployment() -> dict:
 
 
 async def _run_nmf_deployment() -> dict:
-    """Full NMF retrain cycle that writes output to detected_trends."""
+    """
+    Full NMF retrain cycle that writes output to detected_trends.
+
+    Retrain gate: only proceeds once >= DEPLOYED_RETRAIN_THRESHOLD genuinely
+    new tweets have arrived since the last retrain. Once gated open, training
+    always uses the FULL cumulative corpus (old + new, most recent
+    CORPUS_LIMIT tweets) — never just the incremental delta.
+    """
     db = await get_database()
     state = await db["pipeline_state"].find_one({"pipeline": "nmf"})
     last_ts = state.get("last_trained_tweet_collected_at") if state else None
-    corpus_after_timestamp = last_ts  # incremental by default — only new tweets
 
     if last_ts:
         new_count = await db["raw_tweets"].count_documents({"collected_at": {"$gt": last_ts}})
@@ -491,14 +502,12 @@ async def _run_nmf_deployment() -> dict:
             if has_topics > 0:
                 logger.info("Skipping NMF: only %d new tweets (minimum %d required)", new_count, DEPLOYED_RETRAIN_THRESHOLD)
                 return {"status": "skipped", "reason": "insufficient_new_tweets", "new_tweets_count": new_count}
-            # has_topics == 0 — first deployment after evaluation, load full corpus once
-            corpus_after_timestamp = None
 
     count = await get_corpus_count()
     if count < MIN_CORPUS_SIZE:
         return {"status": "skipped", "reason": "insufficient_corpus", "corpus_count": count}
 
-    df = await load_tweet_corpus(lang=None, limit=CORPUS_LIMIT, after_timestamp=corpus_after_timestamp)
+    df = await load_tweet_corpus(lang=None, limit=CORPUS_LIMIT, after_timestamp=None)
     if df.empty:
         return {"status": "skipped", "reason": "empty_corpus"}
 

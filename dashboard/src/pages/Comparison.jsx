@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useDateRange } from '../contexts/DateRangeContext'
 import DateFilter from '../components/DateFilter'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useTheme } from '../contexts/ThemeContext'
 import { getTrends, getModelComparison, getModelHistory } from '../services/api'
 import { rangeToQueryParams } from '../utils/dateRange'
 import {
@@ -13,6 +14,7 @@ import {
 const Comparison = () => {
   const { range, customDates } = useDateRange()
   const { t } = useLanguage()
+  const { isDarkMode } = useTheme()
   
   const [enTrends, setEnTrends] = useState([])
   const [soTrends, setSoTrends] = useState([])
@@ -82,8 +84,14 @@ const Comparison = () => {
                   <XAxis dataKey="run" tickFormatter={(v) => `Run ${v}`} fontSize={12} tick={{ fill: '#94a3b8' }} tickLine={false} axisLine={false} />
                   <YAxis domain={[0, 1]} fontSize={12} tick={{ fill: '#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={(v) => v.toFixed(2)} />
                   <RechartsTooltip
-                    contentStyle={{ backgroundColor: '#0F172A', border: 'none', borderRadius: '10px', color: '#f8fafc', padding: '10px 14px' }}
-                    itemStyle={{ fontSize: '13px', fontWeight: 'bold' }}
+                    contentStyle={{
+                      backgroundColor: isDarkMode ? 'rgba(30, 41, 59, 0.85)' : 'rgba(15, 23, 42, 0.85)',
+                      border: isDarkMode ? '1px solid #334155' : 'none',
+                      borderRadius: '10px',
+                      color: '#f8fafc',
+                      padding: '10px 14px',
+                    }}
+                    itemStyle={{ fontSize: '13px', fontWeight: 'bold', color: '#f8fafc' }}
                     labelFormatter={(v) => `Run ${v} — ${new Date(chartData[v - 1]?.trained_at).toLocaleDateString()}`}
                     formatter={(value, name) => [value != null ? Number(value).toFixed(4) : 'N/A', METRIC_LABELS[name] || name]}
                   />

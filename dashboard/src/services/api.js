@@ -15,6 +15,39 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Endpoints where a 401 is a normal answer ("wrong password"), not a dead session.
+const AUTH_ENTRY_POINTS = /\/auth\/(login|google|signup)/;
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // FastAPI returns 422 validation errors as an array of objects. Pages render
+    // `detail` directly, so flatten it to a string before it reaches React.
+    const detail = error.response?.data?.detail;
+    if (Array.isArray(detail)) {
+      error.response.data.detail = detail
+        .map((d) => d?.msg?.replace(/^Value error,\s*/, '') || 'Invalid value')
+        .join('. ');
+    }
+
+    // An expired or invalid token otherwise leaves the user on a page that
+    // silently fails every request, so end the session and send them to login.
+    const url = error.config?.url || '';
+    if (
+      error.response?.status === 401 &&
+      !AUTH_ENTRY_POINTS.test(url) &&
+      localStorage.getItem('token')
+    ) {
+      localStorage.removeItem('token');
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.replace('/login?expired=1');
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
+
 export const loginUser = async (email, password) => {
   // FastAPI OAuth2PasswordRequestForm expects form-data
   const formData = new URLSearchParams();
@@ -25,6 +58,14 @@ export const loginUser = async (email, password) => {
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded'
     }
+  });
+  return response.data;
+};
+
+export const verifyLogin2FA = async (challengeToken, code) => {
+  const response = await api.post('/auth/login/2fa', {
+    challenge_token: challengeToken,
+    code
   });
   return response.data;
 };
@@ -62,8 +103,9 @@ export const verify2FACode = async (code) => {
   return response.data;
 };
 
-export const disable2FA = async () => {
-  const response = await api.post('/auth/2fa/disable');
+// Requires re-authentication: either the account password or a fresh emailed code.
+export const disable2FA = async ({ password, code } = {}) => {
+  const response = await api.post('/auth/2fa/disable', { password, code });
   return response.data;
 };
 

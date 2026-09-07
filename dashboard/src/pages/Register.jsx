@@ -133,9 +133,11 @@ const Register = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={isLoading || isGoogleLoading}
+                  minLength={8}
                   required
                 />
               </div>
+              <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">At least 8 characters, including a letter and a number.</p>
             </div>
             
             <button
@@ -168,7 +170,7 @@ const Register = () => {
                     theme="filled_blue"
                     size="large"
                     shape="rectangular"
-                    width="100%"
+                    width="320"
                     text="signup_with"
                  />
                </div>

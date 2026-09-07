@@ -39,22 +39,29 @@ async def main():
     
     # Standard query list from app/main.py
     queries = [
-        "(president OR parliament OR election OR democracy OR coup OR treaty OR diplomacy OR referendum OR geopolitics OR veto OR coalition OR impeachment OR sanctions OR bilateral OR legislation) lang:en -is:retweet -is:reply",
-        "(war OR ceasefire OR airstrike OR military OR NATO OR terrorism OR siege OR nuclear OR missile OR insurgency OR occupation OR peacekeeping OR frontline OR offensive OR troops) lang:en -is:retweet -is:reply",
-        "(economy OR inflation OR recession OR GDP OR market OR trade OR currency OR IMF OR breaking OR crisis OR summit OR soccer OR football OR goal OR tournament OR FIFA OR WorldCup) lang:en -is:retweet -is:reply",
-        "(#WorldCup2026 OR #FIFAWorldCup OR #BreakingNews OR #ClimateChange OR #NATO OR #G7 OR #GlobalNews OR #Election2026 OR #Gaza OR #Ukraine OR #HumanRights OR #Economy OR #Earthquake OR #Refugee) lang:en -is:retweet -is:reply",
+        "(crime OR investigation OR lawsuit OR corruption OR fraud OR trial OR verdict OR police OR prison OR indictment OR scandal OR arrest OR homicide OR courtroom OR justice) lang:en -is:retweet -is:reply",
+        "(education OR university OR tuition OR scholarship OR studentloan OR curriculum OR literacy OR classroom OR teacher OR enrollment OR graduation OR STEM OR onlinelearning OR admissions) lang:en -is:retweet -is:reply",
+        "(entertainment OR celebrity OR boxoffice OR streaming OR grammy OR oscars OR concert OR album OR premiere OR bollywood OR hollywood OR gaming OR esports OR viral) lang:en -is:retweet -is:reply",
+        "(#Hollywood OR #Grammys OR #Oscars OR #Gaming OR #Esports OR #Education OR #CrimeNews OR #Justice OR #Streaming OR #PopCulture OR #TrueCrime OR #Celebrity OR #BoxOffice) lang:en -is:retweet -is:reply",
     ]
 
     # queries = [
-    #     "(dowladda OR xukuumada OR doorasho OR baarlamaanka OR madaxweyne OR raysalwasaare OR wasiir OR siyaasad OR golaha OR dastuurka OR xildhibaan) -is:retweet -is:reply",
-    #     "(amniga OR dagaal OR weerar OR ciidamada OR alshabaab OR qarax OR nabadgelyo OR howlgal OR argagixiso OR difaaca) -is:retweet -is:reply",
-    #     "(dhaqaalaha OR ganacsiga OR lacagta OR suuqa OR shacabka OR gargaar OR abaaraha OR barakac OR caafimaad OR waxbarasho OR kubadda) -is:retweet -is:reply",
+    #     "(dowladda OR xukuumada OR doorasho OR baarlamaanka OR madaxweyne OR raysalwasaare OR wasiir OR siyaasad OR golaha OR dastuurka OR xildhibaan OR maamulka OR doorashada) -is:retweet -is:reply",
+    #     "(amniga OR dagaal OR weerar OR ciidamada OR alshabaab OR qarax OR nabadgelyo OR howlgal OR argagixiso OR difaaca OR khawaarij OR hubaysan) -is:retweet -is:reply",
+    #     "(dhaqaalaha OR ganacsiga OR lacagta OR suuqa OR shacabka OR gargaar OR abaaraha OR barakac OR caafimaad OR waxbarasho OR kubadda OR roobabka OR fatahaad) -is:retweet -is:reply",
     #     "(#Soomaaliya OR #Somalia OR #SomaliTwitter OR #Muqdisho OR #Mogadishu OR #Somaliland OR #Puntland OR #Galmudug OR #Hirshabelle OR #Koofurgalbeed OR #Jubaland OR #Banadir OR #Villasomalia) -is:retweet -is:reply",
     # ]
-    
+
+    # queries = [
+    #     "(safarka OR dalxiisaha OR duulimaadyada OR hotelada OR xeebaha OR beeraha-dalxiiska OR magaalooyinka OR bandhigyada OR ciyaaraha-dibedda OR socdaalka) -is:retweet -is:reply",
+    #     "(riyaaqada OR fashinka OR cuntada OR maqaayadaha OR sanka-iyo-quruxda OR dharka OR filimada OR telefishinka OR musalsalada OR baraha-bulshada-madadaalada) -is:retweet -is:reply",
+    #     "(kubadda-cagta OR kubadda-koleyga OR ciyaaraha OL-ka OR tartannada-caalamiga OR kooxaha-soomaaliyeed OR ciyaartoyda OR koobabka-caalamiga OR gymnastics OR isboortiga-dumarka OR tababarayaasha) -is:retweet -is:reply",
+    #     "(#DalxiiskaSoomaaliya OR #MadadaaladaSoomaaliyeed OR #IsboortigaSoomaaliya OR #KubaddaCagtaSoomaaliyeed OR #FilimadaSoomaaliyeed OR #FashinkaSoomaaliyeed OR #CuntadaSoomaaliyeed OR #DalxiisSoomaaliyeed OR #CiyaaraheenSoomaaliyeed) -is:retweet -is:reply",
+    # ]
+
     print(f"Starting data collection for {len(queries)} queries...")
     try:
-        ingested = await run_data_collection_pipeline(collector, queries, limit_per_query=50)
+        ingested = await run_data_collection_pipeline(collector, queries, limit_per_query=1000)
         print(f"Success! Newly ingested tweets: {ingested}")
     except Exception as e:
         print(f"Error running data collection pipeline: {e}")

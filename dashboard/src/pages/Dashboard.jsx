@@ -160,7 +160,7 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <StatCard title="Total Tweets" value={stats.totalTweets} icon={XIcon} subtext="All collected tweets" subtextColor="text-slate-400" iconColor="text-brand-primary dark:text-white" />
         <StatCard title="English Tweets" value={stats.totalEnglishTweets} icon={XIcon} subtext={`${stats.totalTweets > 0 ? ((stats.totalEnglishTweets / stats.totalTweets) * 100).toFixed(1) : '0.0'}% of total`} subtextColor="text-brand-primary" iconColor="text-brand-primary" />
-        <StatCard title="Somali Tweets" value={stats.totalSomaliTweets} icon={XIcon} subtext={`${stats.totalTweets > 0 ? ((stats.totalSomaliTweets / stats.totalTweets) * 100).toFixed(1) : '0.0'}% of total`} subtextColor="text-brand-secondary" iconColor="text-brand-secondary" />
+        <StatCard title="Somali Tweets" value={stats.totalSomaliTweets} icon={XIcon} subtext={`${stats.totalTweets > 0 ? ((stats.totalSomaliTweets / stats.totalTweets) * 100).toFixed(1) : '0.0'}% of total`} subtextColor="text-brand-primary" iconColor="text-brand-primary" />
         <StatCard title="Trending Topics" value={stats.trendingTopics} icon={Hash} subtext="Detected topics" subtextColor="text-slate-400" iconColor="text-brand-secondary" />
       </div>
 

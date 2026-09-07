@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Eye, ChevronUp, ChevronDown, Loader2 } from 'lucide-react'
 import { useDateRange } from '../contexts/DateRangeContext'
 import DateFilter from '../components/DateFilter'
+import LinkifiedText from '../components/LinkifiedText'
 import { useLanguage } from '../contexts/LanguageContext'
 import { getHistory } from '../services/api'
 import { rangeToQueryParams } from '../utils/dateRange'
@@ -131,7 +132,7 @@ const History = () => {
                      <ul className="list-disc pl-5 space-y-2 text-slate-600 dark:text-slate-300 text-xs leading-relaxed">
                        {item.representative_docs && item.representative_docs.length > 0 ? (
                          item.representative_docs.map((doc, dIdx) => (
-                           <li key={dIdx}>{doc}</li>
+                           <li key={dIdx}><LinkifiedText text={doc} /></li>
                          ))
                        ) : (
                          <li>No representative context available.</li>

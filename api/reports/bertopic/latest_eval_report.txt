@@ -2,41 +2,80 @@
            BERTOPIC EVALUATION REPORT             
 ==================================================
 
-Generated at: 2026-06-27T14:34:39.448700
-Total Documents: 1829
-Number of Topics (excl. outliers): 23
+Generated at: 2026-08-20T22:31:58.821091
+Total Documents: 4110
+Number of Topics (excl. outliers): 62
 
 --------------------------------------------------
 Metrics:
- - Semantic Cohesion (Mean Cosine Similarity): 0.4832
- - Topic Diversity (Unique Keywords Ratio):  0.8957
+ - Semantic Cohesion (Mean Cosine Similarity): 0.4635
+ - Topic Diversity (Unique Keywords Ratio):  0.9016
 --------------------------------------------------
 
 Topic Size Statistics:
- Topic  Count  Percentage                                      Name
-     0    696   38.053581                   0_ai_business_like_tech
-    -1    363   19.846911   -1_somalia_government_people_somaliland
-     1    121    6.615637           1_fifaworldcup_bafana_south_cup
-     2    104    5.686167     2_somalia_somaliland_somali_mogadishu
-     3     69    3.772553  3_war_military_pride_ctwpride2026xyinwar
-     4     63    3.444505   4_somaliland_israel_president_jerusalem
-     5     52    2.843084             5_stock_stocks_daily_anitaoh8
-     6     42    2.296337        6_election_politics_know_political
-     7     35    1.913614    7_somalia_development_uae_partnerships
-     8     32    1.749590            8_trump_donald_president_worst
-     9     29    1.585566               9_iran_war_israel_palestine
-    10     25    1.366867 10_venezuela_earthquake_earthquakes_ready
-    11     25    1.366867    11_political_somalia_opposition_reform
-    12     22    1.202843             12_ukraine_russian_russia_war
-    13     19    1.038819            13_nigeria_abuja_lack_nigerian
-    14     17    0.929470               14_prices_economy_fx_petrol
-    15     17    0.929470       15_mexico_quiñones_mateo_classified
-    16     17    0.929470       16_forces_clashes_reportedly_update
-    17     16    0.874795 17_congress_emergency_democratic_chapters
-    18     16    0.874795             18_president_kenya_talks_ruto
-    19     14    0.765446   19_humanitarian_funding_water_savelives
-    20     13    0.710771           20_muslim_ilhan_first_ilhanomar
-    21     12    0.656096              21_mohamed_meeting_awdal_met
-    22     10    0.546747          22_government_wake_take_protests
+ Topic  Count  Percentage                                                 Name
+    -1   1387   33.746959                          -1_ai_people_one_government
+     0    284    6.909976                                0_ai_agents_agent_use
+     1    175    4.257908                 1_fifaworldcup_football_bafana_south
+     2    171    4.160584                2_somaliland_somalia_somali_mogadishu
+     3    108    2.627737                           3_war_military_world_pride
+     4     97    2.360097                              4_nsfwtwt_im_wanna_girl
+     5     85    2.068127                    5_arday_jason_cambridge_professor
+     6     74    1.800487                 6_baidoa_political_somalia_mogadishu
+     7     71    1.727494                  7_somalia_development_uae_stability
+     8     70    1.703163                      8_india_bjp_parliament_minister
+     9     67    1.630170              9_israel_somaliland_jerusalem_president
+    10     65    1.581509                       10_police_prison_trial_justice
+    11     63    1.532847                      11_trump_president_donald_obama
+    12     62    1.508516             12_election_politics_democrats_democracy
+    13     56    1.362530                               13_aiart_ai_3d_undress
+    14     52    1.265207                    14_president_kenya_meeting_sheikh
+    15     51    1.240876                           15_israel_gaza_israeli_war
+    16     50    1.216545       16_blockchain_web3_infrastructure_konnex_world
+    17     48    1.167883                  17_ukraine_russian_russia_ukrainian
+    18     46    1.119221                          18_iran_tehran_talks_hormuz
+    19     46    1.119221                     19_education_school_teacher_kids
+    20     44    1.070560                       20_stock_stocks_anitaoh8_daily
+    21     44    1.070560                 21_nigeria_nigerian_nigerians_tinubu
+    22     42    1.021898                              22_entry_smc_sniper_ict
+    23     40    0.973236                     23_shabaab_alshabaab_shabelle_al
+    24     40    0.973236                    24_drought_flood_rescue_hurricane
+    25     38    0.924574 25_comoros_mauritania_unitedarabemirates_saudiarabia
+    26     37    0.900243                   26_gymnastics_tim_ncaagym_olympics
+    27     33    0.802920                        27_protest_protests_cjp_court
+    28     30    0.729927                 28_earthquake_japan_kumamoto_tsunami
+    29     30    0.729927                      29_mental_gymnastics_brain_know
+    30     28    0.681265              30_championships_european_zagreb_junior
+    31     27    0.656934                   31_kashmir_rawalakot_jammu_injured
+    32     25    0.608273                    32_muslim_ilhan_islam_barackobama
+    33     25    0.608273                    33_turkey_defense_turkish_somalia
+    34     25    0.608273                       34_tanker_pirates_ukmto_vessel
+    35     24    0.583942                       35_economy_pensions_money_lock
+    36     24    0.583942                        36_cat_listing_hood_increased
+    37     24    0.583942                          37_uk_british_comcast_harry
+    38     23    0.559611                       38_stock_market_palantir_semis
+    39     23    0.559611            39_venezuela_earthquake_earthquakes_ready
+    40     22    0.535280                       40_market_chart_range_breakout
+    41     22    0.535280                            41_earthquake_km_min_info
+    42     21    0.510949               42_government_wake_stealing_destroying
+    43     21    0.510949              43_ecosystem_mcv_themoonclave_community
+    44     20    0.486618                     44_domain_ownership_com_business
+    45     19    0.462287              45_climate_change_climatechange_warming
+    46     19    0.462287                        46_drone_drones_ukraine_japan
+    47     17    0.413625                  47_dubai_finland_djabuti_dilaalnett
+    48     17    0.413625                48_netanyahu_trump_benjamin_zelenskyy
+    49     17    0.413625                             49_trade_silver_gwei_120
+    50     17    0.413625                         50_mexico_fidalgo_r32_chavez
+    51     16    0.389294                       51_future_innovation_acepyr_gt
+    52     15    0.364964                      52_monster_vamsi_dil_salmankhan
+    53     14    0.340633                           53_oil_crude_petrol_prices
+    54     14    0.340633                      54_tron_network_usdt_stablecoin
+    55     13    0.316302                  55_crypto_trading_peartrade_airdrop
+    56     13    0.316302                         56_spacex_musk_elon_starship
+    57     13    0.316302                         57_qanon_media_lt_leadership
+    58     13    0.316302                              58_pellet_delhi_guns_ak
+    59     12    0.291971                         59_senate_clarity_act_recess
+    60     11    0.267640                          60_nvidia_chips_cursor_groq
+    61     10    0.243309                      61_fake_account_content_twitter
 
 ==================================================

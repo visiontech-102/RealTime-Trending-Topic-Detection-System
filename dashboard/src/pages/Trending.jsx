@@ -4,6 +4,7 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { useDateRange } from '../contexts/DateRangeContext'
 import { getTrends, filterTrends } from '../services/api'
 import DateFilter from '../components/DateFilter'
+import LinkifiedText from '../components/LinkifiedText'
 import { rangeToQueryParams } from '../utils/dateRange'
 
 const Trending = () => {
@@ -149,7 +150,7 @@ const Trending = () => {
                         <ul className="list-disc pl-5 space-y-2 text-slate-600 dark:text-slate-300 text-xs leading-relaxed">
                           {t.representative_docs && t.representative_docs.length > 0 ? (
                             t.representative_docs.map((doc, dIdx) => (
-                              <li key={dIdx}>{doc}</li>
+                              <li key={dIdx}><LinkifiedText text={doc} /></li>
                             ))
                           ) : (
                             <li>No representative context available.</li>

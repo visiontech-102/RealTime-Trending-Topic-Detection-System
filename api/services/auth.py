@@ -19,6 +19,19 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
+def hash_2fa_code(code: str) -> str:
+    """Hash a 2FA code before storing it, so a database leak does not expose it."""
+    return pwd_context.hash(code)
+
+
+def verify_2fa_code_hash(code: str, hashed_code: str) -> bool:
+    """Constant-time verification of a submitted 2FA code against its stored hash."""
+    try:
+        return pwd_context.verify(code, hashed_code)
+    except Exception:
+        return False
+
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:

@@ -3,6 +3,7 @@ import { MessageSquare, ChevronDown, ChevronUp } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useDateRange } from '../contexts/DateRangeContext'
 import DateFilter from '../components/DateFilter'
+import LinkifiedText from '../components/LinkifiedText'
 import { getRawTweets } from '../services/api'
 import { rangeToQueryParams } from '../utils/dateRange'
 
@@ -112,8 +113,8 @@ const Tweets = () => {
                   >
                     <div className="col-span-8 pl-4 pr-12 flex items-start gap-3">
                       <MessageSquare className="text-brand-secondary/50 mt-1 flex-shrink-0" size={18} />
-                      <div>
-                        <div className="text-[14px] font-medium text-slate-800 dark:text-slate-200">{t.text}</div>
+                      <div className="min-w-0">
+                        <div className="text-[14px] font-medium text-slate-800 dark:text-slate-200"><LinkifiedText text={t.text} /></div>
                         <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">ID: {t.tweet_id}</div>
                       </div>
                     </div>

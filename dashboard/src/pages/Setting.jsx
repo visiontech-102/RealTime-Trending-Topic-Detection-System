@@ -58,10 +58,19 @@ const Setting = () => {
 
   const [activeModal, setActiveModal] = useState(null);
   const [confirm2FADisable, setConfirm2FADisable] = useState(false);
+  const [disablePassword, setDisablePassword] = useState('');
+  const [disableError, setDisableError] = useState('');
+  const [isDisabling, setIsDisabling] = useState(false);
+  // Google-provisioned accounts have no password their owner knows, so an
+  // emailed code is offered as an equally strong second way to re-authenticate.
+  const [disableMode, setDisableMode] = useState('password');
+  const [disableCode, setDisableCode] = useState('');
+  const [isSendingDisableCode, setIsSendingDisableCode] = useState(false);
   const [twoFactor, setTwoFactor] = useState(false);
   const [show2FAInput, setShow2FAInput] = useState(false);
   const [twoFACode, setTwoFACode] = useState('');
   const [twoFAError, setTwoFAError] = useState('');
+  const [twoFANotice, setTwoFANotice] = useState('');
   const [isSending2FA, setIsSending2FA] = useState(false);
   const [isVerifying2FA, setIsVerifying2FA] = useState(false);
   const [emailDigests, setEmailDigests] = useState(true);
@@ -101,24 +110,65 @@ const Setting = () => {
       setShow2FAInput(false);
       setTwoFACode('');
       setTwoFAError('');
+      setTwoFANotice('');
       setConfirm2FADisable(false);
+      setDisablePassword('');
+      setDisableError('');
+      setDisableCode('');
+      setDisableMode('password');
     }, 300);
   };
 
   const handleToggle2FA = async () => {
     if (twoFactor) {
       setConfirm2FADisable(true);
-    } else {
-      setIsSending2FA(true); setTwoFAError('');
-      try { await request2FACode(); setShow2FAInput(true); }
-      catch { setTwoFAError('Failed to send code. Try again.'); }
-      finally { setIsSending2FA(false); }
+      return;
     }
+
+    setIsSending2FA(true); setTwoFAError(''); setTwoFANotice('');
+    try {
+      await request2FACode();
+      setShow2FAInput(true);
+    } catch (err) {
+      // 429 means a code went out moments ago and is still valid, so open the
+      // input anyway — the resend throttle should not become a dead end.
+      if (err.response?.status === 429) {
+        setShow2FAInput(true);
+        setTwoFANotice(err.response.data?.detail || 'A code was already sent. Check your email.');
+      } else {
+        setTwoFAError(err.response?.data?.detail || 'Failed to send code. Try again.');
+      }
+    } finally { setIsSending2FA(false); }
   };
 
-  const handleConfirmDisable2FA = async () => {
-    try { await disable2FA(); setTwoFactor(false); setConfirm2FADisable(false); }
-    catch (err) { console.error('Failed to disable 2FA', err); }
+  const handleSwitchToCodeDisable = async () => {
+    setIsSendingDisableCode(true); setDisableError('');
+    try {
+      await request2FACode();
+      setDisableMode('code');
+    } catch (err) {
+      // A live code from the resend cooldown is still usable, so switch anyway.
+      if (err.response?.status === 429) {
+        setDisableMode('code');
+        setDisableError(err.response.data?.detail || 'A code was already sent. Check your email.');
+      } else {
+        setDisableError(err.response?.data?.detail || 'Failed to send code. Try again.');
+      }
+    } finally { setIsSendingDisableCode(false); }
+  };
+
+  const handleConfirmDisable2FA = async (e) => {
+    e.preventDefault();
+    setIsDisabling(true); setDisableError('');
+    try {
+      await disable2FA(
+        disableMode === 'code' ? { code: disableCode.trim() } : { password: disablePassword }
+      );
+      setTwoFactor(false); setConfirm2FADisable(false);
+      setDisablePassword(''); setDisableCode(''); setDisableMode('password');
+    } catch (err) {
+      setDisableError(err.response?.data?.detail || 'Failed to disable 2FA. Please try again.');
+    } finally { setIsDisabling(false); }
   };
 
   const handleVerify2FA = async (e) => {
@@ -210,7 +260,7 @@ const Setting = () => {
         <SettingsItem icon={Shield} title="Privacy and security" description="Two-Factor Authentication" onClick={() => setActiveModal('privacy')} isTop={true} isBottom={true} />
         <SettingsItem icon={Bell} title="Notifications" description="Alerts, digests, and spike notifications" onClick={() => setActiveModal('notifications')} isTop={true} isBottom={true} />
 
-        <SettingsItem icon={Info} title="About" description="Vision Tech v1.0 — Real-Time Topic Detection" onClick={() => setActiveModal('about')} isTop={true} isBottom={true} />
+        <SettingsItem icon={Info} title="About" description="v1.0 — Bilingual (SO-EN) Trend Detection" onClick={() => setActiveModal('about')} isTop={true} isBottom={true} />
       </div>
 
       {/* MODALS */}
@@ -248,7 +298,8 @@ const Setting = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">New Password</label>
-              <input type="password" required minLength={6} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className={inputClass} placeholder="••••••••" />
+              <input type="password" required minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className={inputClass} placeholder="••••••••" />
+              <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">At least 8 characters, including a letter and a number.</p>
             </div>
             <button type="submit" disabled={isSubmitting} className={`${btnPrimary} disabled:opacity-70 disabled:cursor-not-allowed`}>
               {isSubmitting ? 'Updating...' : 'Update Password'}
@@ -274,21 +325,80 @@ const Setting = () => {
             <Toggle enabled={twoFactor} />
           </div>
 
-          {confirm2FADisable && (
-            <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg animate-in slide-in-from-top-2 duration-200">
-              <h4 className="text-sm font-bold text-red-700 dark:text-red-400 mb-1">Disable 2FA?</h4>
-              <p className="text-xs text-red-600 dark:text-red-400 mb-3">Your account will be less secure without two-factor authentication.</p>
-              <div className="flex gap-2">
-                <button onClick={() => setConfirm2FADisable(false)} className="flex-1 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">Cancel</button>
-                <button onClick={handleConfirmDisable2FA} className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors">Disable</button>
-              </div>
+          {/* Rendered outside the code panel so a send failure is never silent. */}
+          {twoFAError && !show2FAInput && (
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-xs rounded-lg font-bold text-center">
+              {twoFAError}
             </div>
+          )}
+
+          {confirm2FADisable && (
+            <form onSubmit={handleConfirmDisable2FA} className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg animate-in slide-in-from-top-2 duration-200">
+              <h4 className="text-sm font-bold text-red-700 dark:text-red-400 mb-1">Disable 2FA?</h4>
+              <p className="text-xs text-red-600 dark:text-red-400 mb-3">
+                Your account will be less secure without two-factor authentication.
+                {disableMode === 'code'
+                  ? ' Enter the 6-digit code we just emailed you.'
+                  : ' Confirm your password to continue.'}
+              </p>
+              {disableError && (
+                <div className="mb-3 p-2 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-xs rounded border border-red-300 dark:border-red-800 font-bold">{disableError}</div>
+              )}
+
+              {disableMode === 'code' ? (
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoFocus
+                  value={disableCode}
+                  onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  maxLength={6}
+                  className={inputClass + ' mb-3 text-center font-mono tracking-widest'}
+                  required
+                />
+              ) : (
+                <input
+                  type="password"
+                  autoFocus
+                  value={disablePassword}
+                  onChange={(e) => setDisablePassword(e.target.value)}
+                  placeholder="Current password"
+                  className={inputClass + ' mb-3'}
+                  required
+                />
+              )}
+
+              <div className="flex gap-2">
+                <button type="button" onClick={() => { setConfirm2FADisable(false); setDisablePassword(''); setDisableCode(''); setDisableError(''); setDisableMode('password'); }} className="flex-1 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">Cancel</button>
+                <button type="submit" disabled={isDisabling || (disableMode === 'code' ? disableCode.length < 6 : !disablePassword)} className="flex-1 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-xs font-bold rounded-lg transition-colors">
+                  {isDisabling ? 'Disabling...' : 'Disable'}
+                </button>
+              </div>
+
+              {disableMode === 'password' && (
+                <button
+                  type="button"
+                  onClick={handleSwitchToCodeDisable}
+                  disabled={isSendingDisableCode}
+                  className="w-full mt-3 text-xs font-bold text-red-700 dark:text-red-400 hover:underline disabled:opacity-60"
+                >
+                  {isSendingDisableCode
+                    ? 'Sending code...'
+                    : 'Signed in with Google? Use an email code instead'}
+                </button>
+              )}
+            </form>
           )}
 
           {show2FAInput && (
             <div className="p-4 bg-brand-primary/5 dark:bg-brand-primary/10 border border-brand-primary/20 dark:border-brand-primary/30 rounded-lg animate-in slide-in-from-top-2 duration-300">
               <h4 className="text-sm font-bold text-brand-primary dark:text-brand-secondary mb-2">Verify Email Code</h4>
               <p className="text-xs text-slate-600 dark:text-slate-400 mb-3">We've sent a 6-digit code to your email. Enter it below to enable 2FA.</p>
+              {twoFANotice && (
+                <div className="mb-3 p-2 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 text-xs rounded border border-amber-200 dark:border-amber-800">{twoFANotice}</div>
+              )}
               {twoFAError && (
                 <div className="mb-3 p-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-xs rounded border border-red-200 dark:border-red-800 font-bold">{twoFAError}</div>
               )}
@@ -347,13 +457,13 @@ const Setting = () => {
           <div className="w-16 h-16 bg-brand-primary rounded-xl flex items-center justify-center shadow-lg shadow-brand-primary/30 mb-2">
             <Shield size={32} className="text-white" />
           </div>
-          <h3 className="text-xl font-bold text-brand-primary dark:text-white">Vision Tech Topic Detection</h3>
+          <h3 className="text-xl font-bold text-brand-primary dark:text-white">Bilingual Trend Detection</h3>
           <p className="text-sm font-medium text-slate-500 dark:text-slate-400">v1.0.0 — Final Year Project 2026</p>
           <div className="w-full h-px bg-slate-200 dark:bg-slate-800 my-2" />
           <div className="text-sm text-slate-600 dark:text-slate-300 space-y-3 text-left w-full bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
             {[
               { label: 'Developers', value: 'Vision Tech Team' },
-              { label: 'System', value: 'Design and Implementation of a Real-Time Trending Topic Detection System for English and Somali Tweets using Twitter data' },
+              { label: 'System', value: 'DESIGN AND IMPLEMENTATION OF A REAL-TIME BILINGUAL (SOMALI-ENGLISH) TRENDING TOPIC DETECTION SYSTEM FOR TWITTER (X) USING UNSUPERVISED TOPIC MODELING.' },
               { label: 'Institution', value: 'Jamhuriya University of Science and Technology (JUST)' },
             ].map(({ label, value }) => (
               <div key={label}>

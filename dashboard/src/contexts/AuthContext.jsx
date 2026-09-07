@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { loginUser, signupUser, loginWithGoogle, changeUserPassword, get2FAStatus, request2FACode, verify2FACode, disable2FA, getPreferences, updatePreferences } from '../services/api';
+import { loginUser, verifyLogin2FA, signupUser, loginWithGoogle, changeUserPassword, get2FAStatus, request2FACode, verify2FACode, disable2FA, getPreferences, updatePreferences } from '../services/api';
 
 const AuthContext = createContext();
 
@@ -37,18 +37,44 @@ export const AuthProvider = ({ children }) => {
     setIsLoading(false);
   }, [token]);
 
+  // Stores a freshly issued session token and derives the display user from it.
+  const establishSession = (accessToken, fallbackEmail) => {
+    setToken(accessToken);
+    const decoded = decodeJWT(accessToken);
+    const username = decoded?.sub || fallbackEmail;
+    const name = username.includes('@') ? username.split('@')[0] : username;
+    setUser({ email: username, name });
+    localStorage.setItem('token', accessToken);
+  };
+
+  // Returns { success } on a completed login, or { requires2FA, challengeToken }
+  // when the account has 2FA on — no session exists until the code is verified.
   const login = async (email, password) => {
     try {
       const data = await loginUser(email, password);
-      setToken(data.access_token);
-      const decoded = decodeJWT(data.access_token);
-      const username = decoded?.sub || email;
-      const name = username.includes('@') ? username.split('@')[0] : username;
-      setUser({ email: username, name: name });
-      localStorage.setItem('token', data.access_token);
+      if (data.requires_2fa) {
+        return {
+          success: false,
+          requires2FA: true,
+          challengeToken: data.challenge_token,
+          devCode: data.dev_code || null,
+        };
+      }
+      establishSession(data.access_token, email);
       return { success: true };
     } catch (error) {
       console.error("Login failed:", error);
+      throw error;
+    }
+  };
+
+  const completeLogin2FA = async (challengeToken, code) => {
+    try {
+      const data = await verifyLogin2FA(challengeToken, code);
+      establishSession(data.access_token, '');
+      return { success: true };
+    } catch (error) {
+      console.error("2FA verification failed:", error);
       throw error;
     }
   };
@@ -66,12 +92,16 @@ export const AuthProvider = ({ children }) => {
   const googleLogin = async (credential) => {
     try {
       const data = await loginWithGoogle(credential);
-      setToken(data.access_token);
-      const decoded = decodeJWT(data.access_token);
-      const username = decoded?.sub || 'google.auth@visiontech.com';
-      const name = username.includes('@') ? username.split('@')[0] : username;
-      setUser({ email: username, name: name }); 
-      localStorage.setItem('token', data.access_token);
+      // Google sign-in is subject to the same 2FA gate as password login.
+      if (data.requires_2fa) {
+        return {
+          success: false,
+          requires2FA: true,
+          challengeToken: data.challenge_token,
+          devCode: data.dev_code || null,
+        };
+      }
+      establishSession(data.access_token, 'google.auth@visiontech.com');
       return { success: true };
     } catch (error) {
       console.error("Google Auth failed:", error);
@@ -98,7 +128,7 @@ export const AuthProvider = ({ children }) => {
   return (
     <AuthContext.Provider value={{ 
       user, token, isAuthenticated: !!token, isLoading, 
-      login, signup, googleLogin, logout, setUser, changePassword,
+      login, completeLogin2FA, signup, googleLogin, logout, setUser, changePassword,
       get2FAStatus, request2FACode, verify2FACode, disable2FA,
       getPreferences, updatePreferences
     }}>

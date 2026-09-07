@@ -19,6 +19,8 @@ pymongo==4.7.2
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
+# Verifies Google ID token signatures for /auth/google
+google-auth==2.29.0
 
 # --- Core Data Science ---
 numpy>=1.24.0

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-import random
+import secrets
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -76,8 +76,20 @@ async def send_2fa_code(email: str, code: str):
 
 
 def generate_2fa_code() -> str:
-    """Generates a random 6-digit code."""
-    return str(random.randint(100000, 999999))
+    """
+    Generate a 6-digit verification code using a cryptographically secure RNG.
+
+    `secrets` (OS entropy) is used instead of `random` because the Mersenne
+    Twister behind `random` is predictable: an attacker who observes a few
+    outputs can reconstruct its internal state and derive future codes.
+    Zero-padding keeps the full 000000-999999 keyspace available.
+    """
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def email_delivery_enabled() -> bool:
+    """True when codes are actually emailed; False means console/dev delivery."""
+    return _smtp_configured()
 
 
 async def send_spike_alert(email: str, spikes: list) -> bool:

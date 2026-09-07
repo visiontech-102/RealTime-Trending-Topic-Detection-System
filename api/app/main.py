@@ -23,16 +23,16 @@ async def periodic_data_collection_loop(app: FastAPI):
         return
 
     collector = TweetCollector(bearer_token=bearer_token)
-    # queries = [  
-    #          # 1 — Siyaasad & dowlad
-    #          "(dowladda OR xukuumada OR doorasho OR baarlamaanka OR madaxweyne OR raysalwasaare OR wasiir OR siyaasad OR musharraxa OR xisbiga OR golaha OR dastuurka OR xildhibaan ) -is:retweet -is:reply",
-    #          # 2 — Amni & dagaal
-    #          "(amniga OR dagaal OR weerar OR warar OR wareysi OR ciidamada OR alshabaab OR qarax OR nabadgelyo OR howlgal OR argagixiso OR difaaca OR magaalada OR burbur) -is:retweet -is:reply",
-    #          # 3 — Dhaqaale, bulsho & gargaar
-    #          "(dhaqaalaha OR ganacsiga OR lacagta OR suuqa OR shacabka OR gargaar OR abaaraha OR barakac OR caafimaad OR waxbarasho OR kubadda OR ciyaaraha OR koobka OR adduunka OR bulsho OR heshiis OR qabiil OR  ) -is:retweet -is:reply",
-    #          # 4 — Hashtag & gobollo
-    #          "(#Soomaaliya OR #Somalia OR #SomaliTwitter OR #Muqdisho OR #Mogadishu OR #Somaliland OR #Puntland OR #Galmudug OR #Hirshabelle OR #Koofurgalbeed OR #Jubaland OR #Banadir OR #Villasomalia) -is:retweet -is:reply",
-    # ]
+    queries = [  
+             # 1 — Siyaasad & dowlad
+             "(dowladda OR xukuumada OR doorasho OR baarlamaanka OR madaxweyne OR raysalwasaare OR wasiir OR siyaasad OR musharraxa OR xisbiga OR golaha OR dastuurka OR xildhibaan ) -is:retweet -is:reply",
+             # 2 — Amni & dagaal
+             "(amniga OR dagaal OR weerar OR warar OR wareysi OR ciidamada OR alshabaab OR qarax OR nabadgelyo OR howlgal OR argagixiso OR difaaca OR magaalada OR burbur) -is:retweet -is:reply",
+             # 3 — Dhaqaale, bulsho & gargaar
+             "(dhaqaalaha OR ganacsiga OR lacagta OR suuqa OR shacabka OR gargaar OR abaaraha OR barakac OR caafimaad OR waxbarasho OR kubadda OR ciyaaraha OR koobka OR adduunka OR bulsho OR heshiis OR qabiil OR  ) -is:retweet -is:reply",
+             # 4 — Hashtag & gobollo
+             "(#Soomaaliya OR #Somalia OR #SomaliTwitter OR #Muqdisho OR #Mogadishu OR #Somaliland OR #Puntland OR #Galmudug OR #Hirshabelle OR #Koofurgalbeed OR #Jubaland OR #Banadir OR #Villasomalia) -is:retweet -is:reply",
+    ]
 
     while True:
         try:
@@ -57,7 +57,7 @@ async def periodic_data_collection_loop(app: FastAPI):
                     from jobs.deployment import get_deployed_model, run_deployed_pipeline
                     deployed = await get_deployed_model()
                     if deployed:
-                        threshold = int(os.getenv("BERTOPIC_NEW_TWEETS_THRESHOLD", "500"))
+                        threshold = int(os.getenv("BERTOPIC_NEW_TWEETS_THRESHOLD", "1000"))
                         db_inst = await get_database()
                         state = await db_inst["pipeline_state"].find_one({"pipeline": deployed})
                         last_ts = state.get("last_trained_tweet_collected_at") if state else None

@@ -68,10 +68,10 @@ def _build_trend_documents(df_clean, trainer, topics: list, calculated_at: datet
         keywords = trainer.topic_model.get_topic(topic_id)
         representation = [w for w, _ in keywords[:10]] if keywords else []
 
-        # For each of the top 3 keywords, find the best original tweet from
+        # For each of the top 10 keywords, find the best original tweet from
         # this topic's document subset that contains that keyword.
         # This guarantees each representative tweet is semantically tied to
-        # one specific keyword, and all three are unique.
+        # one specific keyword, and all returned tweets are unique.
         _url_re = re.compile(r'https?://\S+')
         seen_norm: set = set()
         representative_docs: list = []
@@ -82,7 +82,7 @@ def _build_trend_documents(df_clean, trainer, topics: list, calculated_at: datet
                 _eng=subset_sorted["like_count"] + subset_sorted["retweet_count"]
             ).sort_values("_eng", ascending=False)
 
-        for keyword in representation[:3]:
+        for keyword in representation[:10]:
             mask = subset_sorted["text"].str.contains(keyword, case=False, na=False)
             candidates = subset_sorted[mask] if mask.any() else subset_sorted
             for _, row in candidates.iterrows():
@@ -217,9 +217,7 @@ async def run_bertopic_pipeline() -> dict:
     if state:
         last_trained_tweet_collected_at = state.get("last_trained_tweet_collected_at")
 
-    new_tweets_threshold = int(os.getenv("BERTOPIC_NEW_TWEETS_THRESHOLD", "500"))
-
-    corpus_after_timestamp = last_trained_tweet_collected_at
+    new_tweets_threshold = int(os.getenv("BERTOPIC_NEW_TWEETS_THRESHOLD", "1000"))
 
     if last_trained_tweet_collected_at:
         new_tweets_count = await db["raw_tweets"].count_documents(
@@ -239,15 +237,15 @@ async def run_bertopic_pipeline() -> dict:
                     "new_tweets_count": new_tweets_count,
                     "last_trained_tweet_collected_at": last_trained_tweet_collected_at.isoformat() if hasattr(last_trained_tweet_collected_at, "isoformat") else str(last_trained_tweet_collected_at),
                 }
-            # detected_trends empty — first deployment after evaluation.
-            # Load all tweets so topics are written immediately.
-            logger.info(
-                "BERTopic: detected_trends empty after evaluation — loading full corpus (ignoring after_timestamp).",
-            )
-            corpus_after_timestamp = None
 
-    # New tweets only (incremental) — unless first deployment after evaluation (corpus_after_timestamp=None)
-    df = await load_tweet_corpus(lang=None, limit=CORPUS_LIMIT, after_timestamp=corpus_after_timestamp)
+    count = await get_corpus_count()
+    if count < MIN_CORPUS_SIZE:
+        return {"status": "skipped", "reason": "insufficient_corpus", "corpus_count": count}
+
+    # Retrain gate uses only the delta since last training, but once gated
+    # open we always train on the FULL cumulative corpus (old + new, most
+    # recent CORPUS_LIMIT tweets) — never just the incremental delta.
+    df = await load_tweet_corpus(lang=None, limit=CORPUS_LIMIT, after_timestamp=None)
     if df.empty:
         return {"status": "skipped", "reason": "no_new_tweets_found"}
 

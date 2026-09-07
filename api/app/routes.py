@@ -9,14 +9,24 @@ import re as _re_routes
 from pydantic import BaseModel
 
 from db.connection import get_database
-from models.schemas import UserCreate, UserResponse, Token, ChangePasswordRequest, TwoFactorVerifyRequest, TwoFactorStatusResponse, UserPreferences
-from services.email import send_2fa_code, generate_2fa_code
-from services.auth import verify_password, get_password_hash, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
+from models.schemas import UserCreate, UserResponse, Token, LoginResponse, ChangePasswordRequest, TwoFactorVerifyRequest, TwoFactorLoginRequest, TwoFactorDisableRequest, TwoFactorStatusResponse, UserPreferences
+from services.email import send_2fa_code, generate_2fa_code, email_delivery_enabled
+from services.auth import verify_password, get_password_hash, create_access_token, hash_2fa_code, verify_2fa_code_hash, ACCESS_TOKEN_EXPIRE_MINUTES
 from jose import JWTError, jwt
 from services.auth import SECRET_KEY, ALGORITHM
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+
+# --- Two-factor authentication policy ---
+TWO_FA_CODE_TTL_MINUTES = 10        # how long an emailed code stays valid
+TWO_FA_MAX_ATTEMPTS = 5             # wrong guesses before the code is burned
+TWO_FA_RESEND_COOLDOWN_SECONDS = 60 # throttle on /auth/2fa/send-code
+TWO_FA_CHALLENGE_TTL_MINUTES = 5    # lifetime of the half-authenticated login token
+TWO_FA_CHALLENGE_PURPOSE = "2fa_challenge"
+
+# Offline-demo escape hatch: echoes the code in the API response. Default off.
+TWO_FA_DEV_ECHO = os.getenv("TWO_FA_DEV_ECHO", "false").lower() == "true"
 
 # Dependency to get current user
 async def get_current_user(token: str = Depends(oauth2_scheme), db=Depends(get_database)):
@@ -30,13 +40,150 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db=Depends(get_d
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
+        # A 2FA challenge token proves only that the password step passed. It must
+        # never be accepted as a session token, or 2FA could be skipped entirely.
+        if payload.get("purpose") == TWO_FA_CHALLENGE_PURPOSE:
+            raise credentials_exception
     except JWTError:
         raise credentials_exception
-        
+
     user = await db["users"].find_one({"$or": [{"username": username}, {"email": username}]})
     if user is None:
         raise credentials_exception
     return user
+
+
+# --- 2FA helpers (shared by login challenge and settings enrolment) ---
+
+async def _clear_2fa_code(users_collection, user_id):
+    await users_collection.update_one(
+        {"_id": user_id},
+        {"$unset": {
+            "two_factor_code_hash": "",
+            "two_factor_expires": "",
+            "two_factor_attempts": "",
+        }},
+    )
+
+
+async def _issue_2fa_code(users_collection, user: dict, enforce_cooldown: bool) -> Optional[str]:
+    """
+    Generate, hash, store and email a fresh 2FA code.
+
+    Returns the plaintext code (callers may only expose it under TWO_FA_DEV_ECHO).
+    When `enforce_cooldown` is False and a valid code is already outstanding, the
+    existing code is kept instead of erroring — a user retrying login should not
+    be blocked, while an explicit resend should be throttled.
+    """
+    now = datetime.utcnow()
+    last_sent = user.get("two_factor_code_sent_at")
+    expires = user.get("two_factor_expires")
+
+    if last_sent:
+        elapsed = (now - last_sent).total_seconds()
+        if elapsed < TWO_FA_RESEND_COOLDOWN_SECONDS:
+            if enforce_cooldown:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Please wait {int(TWO_FA_RESEND_COOLDOWN_SECONDS - elapsed)}s before requesting another code.",
+                )
+            # Login retry inside the cooldown: reuse the still-valid code.
+            if user.get("two_factor_code_hash") and expires and now < expires:
+                return None
+
+    code = generate_2fa_code()
+    await users_collection.update_one(
+        {"_id": user["_id"]},
+        {"$set": {
+            "two_factor_code_hash": hash_2fa_code(code),
+            "two_factor_expires": now + timedelta(minutes=TWO_FA_CODE_TTL_MINUTES),
+            "two_factor_code_sent_at": now,
+            "two_factor_attempts": 0,
+        }},
+    )
+
+    # If the mail server rejects us the user would be stranded holding a
+    # challenge with no code, so surface the failure instead of half-succeeding.
+    if not await send_2fa_code(user["email"], code):
+        await _clear_2fa_code(users_collection, user["_id"])
+        raise HTTPException(
+            status_code=503,
+            detail="Could not send the verification code. Please try again or contact support.",
+        )
+    return code
+
+
+async def _consume_2fa_code(users_collection, user: dict, submitted_code: str):
+    """
+    Validate a submitted code, then burn it. Raises HTTPException on any failure.
+
+    Enforces expiry and an attempt ceiling, so the 10^6 keyspace cannot be
+    walked: five wrong guesses invalidate the code and force a new email.
+    """
+    stored_hash = user.get("two_factor_code_hash")
+    expires = user.get("two_factor_expires")
+
+    if not stored_hash or not expires:
+        raise HTTPException(status_code=400, detail="No verification code requested. Request a new code.")
+
+    if datetime.utcnow() > expires:
+        await _clear_2fa_code(users_collection, user["_id"])
+        raise HTTPException(status_code=400, detail="Verification code expired. Request a new code.")
+
+    attempts = user.get("two_factor_attempts", 0)
+    if attempts >= TWO_FA_MAX_ATTEMPTS:
+        await _clear_2fa_code(users_collection, user["_id"])
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many incorrect attempts. Request a new code.",
+        )
+
+    if not verify_2fa_code_hash(submitted_code, stored_hash):
+        await users_collection.update_one({"_id": user["_id"]}, {"$inc": {"two_factor_attempts": 1}})
+        remaining = TWO_FA_MAX_ATTEMPTS - attempts - 1
+        if remaining <= 0:
+            await _clear_2fa_code(users_collection, user["_id"])
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many incorrect attempts. Request a new code.",
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid verification code. {remaining} attempt(s) remaining.",
+        )
+
+    await _clear_2fa_code(users_collection, user["_id"])
+
+
+def _issue_access_token(username: str) -> str:
+    return create_access_token(
+        data={"sub": username},
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+
+
+async def _begin_login(users_collection, user: dict) -> dict:
+    """
+    Final step of every login path (password and Google).
+
+    If 2FA is off, hand back a session token. If it is on, hand back only a
+    short-lived challenge token — routing Google sign-in through here too, so it
+    cannot be used to sidestep the second factor.
+    """
+    if not user.get("two_factor_enabled"):
+        return {"access_token": _issue_access_token(user["username"]), "token_type": "bearer"}
+
+    code = await _issue_2fa_code(users_collection, user, enforce_cooldown=False)
+    challenge_token = create_access_token(
+        data={"sub": user["username"], "purpose": TWO_FA_CHALLENGE_PURPOSE},
+        expires_delta=timedelta(minutes=TWO_FA_CHALLENGE_TTL_MINUTES),
+    )
+    return {
+        "requires_2fa": True,
+        "challenge_token": challenge_token,
+        "token_type": "bearer",
+        "dev_code": code if (TWO_FA_DEV_ECHO and not email_delivery_enabled()) else None,
+    }
 
 @router.post("/auth/signup", response_model=UserResponse)
 async def signup(user: UserCreate, db=Depends(get_database)):
@@ -51,43 +198,106 @@ async def signup(user: UserCreate, db=Depends(get_database)):
         "username": user.username,
         "email": user.email,
         "hashed_password": hashed_password,
-        "created_at": datetime.utcnow()
+        "created_at": datetime.utcnow(),
+        # Written explicitly so the stored state matches what Settings displays.
+        "email_digests": True,
+        "spike_alerts": False,
     }
     
     result = await users_collection.insert_one(user_dict)
     user_dict["_id"] = str(result.inserted_id)
     return user_dict
 
-@router.post("/auth/login", response_model=Token)
+@router.post("/auth/login", response_model=LoginResponse)
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db=Depends(get_database)):
     users_collection = db["users"]
     user = await users_collection.find_one({"$or": [{"username": form_data.username}, {"email": form_data.username}]})
-    
+
     if not user or not verify_password(form_data.password, user["hashed_password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-        
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user["username"]}, expires_delta=access_token_expires
+
+    return await _begin_login(users_collection, user)
+
+
+@router.post("/auth/login/2fa", response_model=Token)
+async def login_verify_2fa(request: TwoFactorLoginRequest, db=Depends(get_database)):
+    """Second login step: exchange the challenge token + emailed code for a session token."""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Login session expired. Please sign in again.",
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+
+    try:
+        payload = jwt.decode(request.challenge_token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise credentials_exception
+
+    if payload.get("purpose") != TWO_FA_CHALLENGE_PURPOSE:
+        raise credentials_exception
+
+    username = payload.get("sub")
+    if not username:
+        raise credentials_exception
+
+    users_collection = db["users"]
+    user = await users_collection.find_one({"username": username})
+    if not user or not user.get("two_factor_enabled"):
+        raise credentials_exception
+
+    await _consume_2fa_code(users_collection, user, request.code.strip())
+
+    return {"access_token": _issue_access_token(user["username"]), "token_type": "bearer"}
 
 class GoogleLoginRequest(BaseModel):
     credential: str
 
-@router.post("/auth/google", response_model=Token)
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+
+
+async def _verify_google_credential(credential: str) -> dict:
+    """
+    Verify a Google ID token's signature, issuer, audience and expiry.
+
+    Reading the claims without verification would let anyone mint a token for
+    any email address and take over that account, so this fails closed: a
+    missing GOOGLE_CLIENT_ID disables Google sign-in rather than weakening it.
+    """
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(
+            status_code=503,
+            detail="Google sign-in is not configured on this server.",
+        )
+
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token as google_id_token
+
+    try:
+        return await asyncio.to_thread(
+            google_id_token.verify_oauth2_token,
+            credential,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid Google credential: {e}")
+
+
+@router.post("/auth/google", response_model=LoginResponse)
 async def google_login(request: GoogleLoginRequest, db=Depends(get_database)):
     try:
-        payload = jwt.get_unverified_claims(request.credential)
+        payload = await _verify_google_credential(request.credential)
         email = payload.get("email")
-        
+
         if not email:
             raise HTTPException(status_code=400, detail="Invalid Google token: No email found.")
-            
+
+        if not payload.get("email_verified"):
+            raise HTTPException(status_code=401, detail="Google account email is not verified.")
+
         users_collection = db["users"]
         user = await users_collection.find_one({"email": email})
         
@@ -102,17 +312,19 @@ async def google_login(request: GoogleLoginRequest, db=Depends(get_database)):
                 "username": username,
                 "email": email,
                 "hashed_password": get_password_hash("GOOGLE_OAUTH_DUMMY_PASSWORD"),
-                "created_at": datetime.utcnow()
+                "created_at": datetime.utcnow(),
+                "email_digests": True,
+                "spike_alerts": False,
             }
             await users_collection.insert_one(user_dict)
             user = user_dict
-            
-        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        access_token = create_access_token(
-            data={"sub": user["username"]}, expires_delta=access_token_expires
-        )
-        return {"access_token": access_token, "token_type": "bearer"}
-        
+
+        # Google sign-in goes through the same gate as password login, so an
+        # account with 2FA enabled still has to clear the second factor.
+        return await _begin_login(users_collection, user)
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to verify Google account: {str(e)}")
 
@@ -122,7 +334,10 @@ async def change_password(request: ChangePasswordRequest, current_user: dict = D
     
     if not verify_password(request.current_password, current_user["hashed_password"]):
         raise HTTPException(status_code=400, detail="Incorrect current password")
-        
+
+    if request.new_password == request.current_password:
+        raise HTTPException(status_code=400, detail="New password must be different from the current password")
+
     new_hashed_password = get_password_hash(request.new_password)
     await users_collection.update_one(
         {"_id": current_user["_id"]},
@@ -137,55 +352,62 @@ async def get_2fa_status(current_user: dict = Depends(get_current_user)):
 
 @router.post("/auth/2fa/send-code")
 async def request_2fa_code(current_user: dict = Depends(get_current_user), db=Depends(get_database)):
+    """Enrolment step 1: email a code to the signed-in user. Throttled per account."""
     users_collection = db["users"]
-    
-    code = generate_2fa_code()
-    expires = datetime.utcnow() + timedelta(minutes=10)
-    
-    await users_collection.update_one(
-        {"_id": current_user["_id"]},
-        {"$set": {"two_factor_code": code, "two_factor_expires": expires}}
-    )
-    
-    await send_2fa_code(current_user["email"], code)
-    
-    return {"message": "Verification code sent to your email"}
+
+    code = await _issue_2fa_code(users_collection, current_user, enforce_cooldown=True)
+
+    response = {"message": "Verification code sent to your email"}
+    if TWO_FA_DEV_ECHO and not email_delivery_enabled() and code:
+        response["dev_code"] = code
+    return response
 
 @router.post("/auth/2fa/verify")
 async def verify_2fa_code(request: TwoFactorVerifyRequest, current_user: dict = Depends(get_current_user), db=Depends(get_database)):
+    """Enrolment step 2: prove control of the mailbox, then switch 2FA on."""
     users_collection = db["users"]
-    
-    stored_code = current_user.get("two_factor_code")
-    expires = current_user.get("two_factor_expires")
-    
-    if not stored_code or not expires:
-        raise HTTPException(status_code=400, detail="No 2FA code requested")
-        
-    if datetime.utcnow() > expires:
-        raise HTTPException(status_code=400, detail="Verification code expired")
-        
-    if request.code != stored_code:
-        raise HTTPException(status_code=400, detail="Invalid verification code")
-        
+
+    await _consume_2fa_code(users_collection, current_user, request.code.strip())
+
     await users_collection.update_one(
         {"_id": current_user["_id"]},
-        {
-            "$set": {"two_factor_enabled": True},
-            "$unset": {"two_factor_code": "", "two_factor_expires": ""}
-        }
+        {"$set": {"two_factor_enabled": True}},
     )
-    
+
     return {"message": "Two-Factor Authentication enabled successfully"}
 
 @router.post("/auth/2fa/disable")
-async def disable_2fa(current_user: dict = Depends(get_current_user), db=Depends(get_database)):
+async def disable_2fa(
+    request: TwoFactorDisableRequest,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_database),
+):
+    """
+    Turn 2FA off, but only after re-authentication.
+
+    Without this, anyone holding a stolen session token could strip the second
+    factor with a single click — so the weakest step would define the security
+    of the whole feature.
+    """
     users_collection = db["users"]
-    
+
+    if request.password:
+        if not verify_password(request.password, current_user["hashed_password"]):
+            raise HTTPException(status_code=400, detail="Incorrect password")
+    elif request.code:
+        await _consume_2fa_code(users_collection, current_user, request.code.strip())
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Confirm your password or an emailed code to disable two-factor authentication.",
+        )
+
     await users_collection.update_one(
         {"_id": current_user["_id"]},
         {"$set": {"two_factor_enabled": False}}
     )
-    
+    await _clear_2fa_code(users_collection, current_user["_id"])
+
     return {"message": "Two-Factor Authentication disabled"}
 
 @router.get("/auth/preferences", response_model=UserPreferences)
@@ -272,9 +494,9 @@ async def trigger_model_comparison(current_user: dict = Depends(get_current_user
 
 @router.post("/jobs/send-digests")
 async def trigger_email_digests(current_user: dict = Depends(get_current_user)):
-    """Manually send daily digests to opted-in users."""
+    """Manually send daily digests to opted-in users, bypassing the interval check."""
     from services.notifications import send_daily_digests
-    return await send_daily_digests()
+    return await send_daily_digests(force=True)
 
 
 @router.get("/models/comparison")
@@ -462,12 +684,13 @@ async def get_trends(
     import re as _re
 
     if from_date or to_date:
-        time_filter = {}
+        # Overlap test against each topic's tweet span (tweet_period_from/to),
+        # not a single point like peak_at — a topic counts as "in range" if
+        # any of its underlying tweets were collected within [from_date, to_date].
         if from_date:
-            time_filter["$gte"] = _parse_iso_datetime(from_date)
+            query["tweet_period_to"] = {"$gte": _parse_iso_datetime(from_date)}
         if to_date:
-            time_filter["$lte"] = _parse_iso_datetime(to_date)
-        query["peak_at"] = time_filter
+            query["tweet_period_from"] = {"$lte": _parse_iso_datetime(to_date)}
         cursor = trends_collection.find(query).sort("trend_score", -1).limit(limit * 5)
         trends = await cursor.to_list(length=limit * 5)
     else:
