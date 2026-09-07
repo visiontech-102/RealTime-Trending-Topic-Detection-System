@@ -70,3 +70,6 @@ Frontend/node_modules/
 
 # Specific files
 Faham.md
+
+# Local-only agent guidance — kept on disk, never pushed
+CLAUDE.md
