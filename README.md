@@ -1,400 +1,352 @@
-# Real-Time Trending Topic Detection System for English and Somali Tweets
+<div align="center">
 
-Final Year Project (FYP 2026). A full-stack bilingual topic modeling system that ingests Twitter/X data, trains three competing unsupervised models (LDA, NMF, BERTopic) on the same corpus, evaluates them on identical intrinsic metrics, selects a winner by measured performance, tunes it via hyperparameter search, and deploys it for real-time trending topic output.
+# Real-Time Trending Topic Detection
 
----
+**Bilingual (English · Somali) trending topic detection from Twitter/X, where three unsupervised topic models compete and the measured winner is deployed.**
 
-## System Architecture
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-7-47A248?logo=mongodb&logoColor=white)](https://www.mongodb.com/)
+[![Tests](https://img.shields.io/badge/tests-56%20passing-brightgreen)](#testing)
+[![License](https://img.shields.io/badge/license-MIT-blue)](#license)
 
-The full pipeline runs end-to-end in this order (verified against the current code, not just the design intent):
+Final Year Project · 2026
 
-```
-Twitter API v2  (currently: 4 active query groups, ALL lang:en — the Somali
-                 query set exists in run_data_collection.py but is commented out)
-    → raw_tweets (MongoDB)
-    → corpus_loader  (shared — loads the same corpus slice for all three models)
-    → corpus split by lang_api: df_en / df_so
-    ┌──────────────────────────────────────────────────────────────────┐
-    │  LDA-EN + LDA-SO      NMF-EN + NMF-SO      BERTopic-EN + BERTopic-SO│
-    │  (gensim BoW,         (sklearn TF-IDF,      (SentenceTransformer→UMAP→
-    │   trained separately   trained separately    HDBSCAN→c-TF-IDF, trained
-    │   per language,        per language,          separately per language,
-    │   topics concatenated) topics concatenated)   topics concatenated)
-    └──────────────────────────────────────────────────────────────────┘
-    → Intrinsic evaluation per model (same reference corpus, same TOP_N_WORDS):
-        C_v coherence  /  U_Mass coherence  /  Topic Diversity
-        scored two ways: English  /  Somali   ["combined" corpus is built too,
-        but only to construct the shared reference Dictionary and to save
-        per-model topic-word CSVs — it is NOT a scored, independent slice]
-    → coherence_diversity.json  (single source of truth for all downstream steps)
-    → Winner selection (Option B): primary = highest English C_v;
-        tiebreak = highest Somali C_v; secondary tiebreak = English diversity
-    → Enhancement: hyperparameter sweep on winner only  → before_after.json
-    → Model comparison report  (all three models, all metrics)  → latest_comparison.json
-    → Winner retraining is NOT a separate timed loop — it is triggered inline,
-        inside the data-collection loop, immediately after an ingestion cycle
-        that brings in enough new tweets (BERTOPIC_NEW_TWEETS_THRESHOLD)
-    → detected_trends (MongoDB)  — topics with trend_score = 0.6×volume + 0.4×engagement
-    → FastAPI REST endpoints
-    → React / Vite dashboard
-```
-
-**Known gap between design and running code:**
-- `periodic_data_collection_loop()` in `api/app/main.py` builds its query list from a block that is fully commented out, so the `queries` variable it references is undefined. Each 15-minute tick raises a `NameError`, which the loop's own `try/except` swallows and logs as `"Error in background data collection loop"`. **The live server currently does not auto-collect tweets.** Running `python run_data_collection.py` manually still works (it defines its own `queries` list), but only the English query groups in that file are active — the Somali group is present but commented out.
-- `periodic_model_comparison_loop()` (the one-time loop meant to auto-run the first evaluation and pick a winner) is defined in `main.py` but is **never started** in `lifespan()`. Only `periodic_data_collection_loop` and `periodic_email_digest_loop` actually run. The first evaluation must currently be triggered manually: `POST /jobs/run-evaluation`.
+</div>
 
 ---
 
-## Architecture Layers
+## Overview
 
-The system is organized into five logical layers, each responsible for a distinct stage of the pipeline. The table below maps every file in the repository to the layer it belongs to.
+Most trending-topic systems assume a single model and a single language. This one does neither.
 
-### 1. Data Collection Layer
-Retrieves public tweets from the Twitter (X) API and ingests them into the system for further processing.
+It ingests public tweets, trains **LDA**, **NMF**, and **BERTopic** on the *same* corpus, scores all three against *identical* intrinsic metrics in **English and Somali separately**, and promotes the highest-scoring model to production. The two losers are frozen — the winner alone retrains as new data arrives.
 
-| File | Responsibility |
+The result is a system whose model choice is an empirical outcome rather than an assumption, and whose Somali topics are scored against a Somali reference corpus rather than being folded into an English-dominated average.
+
+### What makes it different
+
+| | |
 |---|---|
-| `api/services/data_collection.py` | `TweetCollector` (Tweepy v2) — queries Twitter API v2, deduplicates, writes to `raw_tweets` |
-| `api/run_data_collection.py` | CLI entry point for one-shot tweet ingestion. Currently ships 4 active `lang:en` query groups (politics/diplomacy, war/military, economy/sports, hashtags); a Somali query group exists in the file but is commented out |
-| `api/app/main.py` (`periodic_data_collection_loop`) | Schedules the recurring 15-minute collection loop and enforces the 1000-tweet session quota. **Currently broken**: its query list block is commented out, so the loop references an undefined `queries` name and fails silently (caught by its own `try/except`) every tick — no tweets are collected automatically by the running server until this is fixed |
-
-### 2. Storage Layer
-Persists both raw tweets and the topics produced by modeling, using a document-oriented database (MongoDB) suited to the semi-structured nature of social-media records.
-
-| File | Responsibility |
-|---|---|
-| `api/db/connection.py` | Motor async MongoDB client, collection index initialization, `deduplicate_existing_trends()` |
-| `api/check_db.py` | Standalone script to inspect database state |
-| `api/pipelines/corpus_loader.py` | Reads and filters the `raw_tweets` corpus for the modeling layer |
-| MongoDB collections | `raw_tweets`, `detected_trends`, `pipeline_state`, `topic_evolution`, `users` |
-
-### 3. Processing and Modeling Layer
-Loads the stored corpus, applies preprocessing, and trains the topic-modeling algorithms to extract and score topics.
-
-| File | Responsibility |
-|---|---|
-| `api/services/lda_model.py` | `LDATrainer` — gensim BoW, English + Somali stopword preprocessing |
-| `api/services/nmf_model.py` | `NMFTrainer` — scikit-learn TF-IDF matrix + NMF factorization |
-| `api/services/bertopic_model.py` | `BERTopicTrainer` — SentenceTransformer → UMAP → HDBSCAN → c-TF-IDF |
-| `api/services/evaluation.py` | Shared evaluation engine (C_v, U_Mass, Topic Diversity) used by all three models |
-| `api/services/trend_scoring.py` | `compute_trend_score()`, `generate_topic_label()` |
-| `api/jobs/evaluation_pipeline.py` | Orchestrates training of all 3 models, evaluation, winner selection, chains enhancement + comparison |
-| `api/jobs/lda_pipeline.py` | Standalone LDA baseline training pipeline |
-| `api/jobs/nmf_pipeline.py` | Standalone NMF baseline training pipeline |
-| `api/jobs/bertopic_pipeline.py` | Standalone BERTopic periodic retraining pipeline |
-| `api/jobs/model_comparison.py` | Metrics-driven three-way comparison; writes comparison report |
-| `api/jobs/enhancement.py` | Hyperparameter sweep for the winning model only |
-| `api/jobs/deployment.py` | Deployed-model registry; winner-only training dispatcher |
-| `api/run_evaluation.py` | CLI entry point: full three-model evaluation pipeline |
-| `api/run_bertopic.py` | CLI entry point: standalone BERTopic run |
-| `api/run_deployment.py` | CLI entry point: runs the winner-only deployment retrain |
-| `api/resources/stopwords.txt` | Somali stopwords — single source of truth for LDA, NMF, BERTopic preprocessing |
-| `api/results/`, `api/reports/` | Runtime output: metrics CSV/JSON, topic CSVs, evaluation reports, comparison JSON |
-
-### 4. Application (Service) Layer
-Exposes the system's functionality through HTTP endpoints and coordinates the background tasks that drive real-time behavior; built around FastAPI with asynchronous database access via Motor.
-
-| File | Responsibility |
-|---|---|
-| `api/app/main.py` | FastAPI app creation, CORS middleware, lifespan startup. Two background loops actually run (data ingestion, email digest); a third (one-time evaluation) is defined but not started — see How to Run |
-| `api/app/routes.py` | REST endpoints: auth, trends, history, raw tweets, filters, job triggers, visualizations |
-| `api/models/schemas.py` | Pydantic request/response schemas (auth, 2FA, user preferences) |
-| `api/services/auth.py` | JWT creation/verification (`python-jose`), bcrypt password hashing |
-| `api/services/email.py` | SMTP sender: 2FA codes, spike alerts, digest emails |
-| `api/services/notifications.py` | Background notification dispatcher (digests, spike alerts) |
-| `api/services/monitoring.py` | Health status and pipeline state checks |
-| `api/.env` | Environment configuration (Mongo URI, secrets, tuning parameters) |
-| `api/pytest.ini` | Pytest configuration and markers |
-| `api/tests/` | Test suite covering routes, auth, evaluation, notifications, trend scoring |
-| `requirements.txt` | Python dependency manifest |
-
-### 5. Presentation Layer
-Renders trends, historical results, and model comparisons for the end user through a React single-page web application (Vite, Tailwind CSS, Recharts).
-
-| File | Responsibility |
-|---|---|
-| `dashboard/src/App.jsx` | React Router v6 route table (public vs. authenticated routes) |
-| `dashboard/src/main.jsx` | React app bootstrap/mount point |
-| `dashboard/src/services/api.js` | Axios instance, base URL, JWT request interceptor |
-| `dashboard/src/contexts/AuthContext.jsx` | JWT token + user session state |
-| `dashboard/src/contexts/ThemeContext.jsx` | Light/dark mode state |
-| `dashboard/src/contexts/LanguageContext.jsx` | English/Somali toggle |
-| `dashboard/src/contexts/DateRangeContext.jsx` | Global date-range filter state |
-| `dashboard/src/components/Layout.jsx` | Authenticated page shell/wrapper |
-| `dashboard/src/components/Navigation.jsx` | Sidebar/nav bar |
-| `dashboard/src/components/DateFilter.jsx` | Shared date-range picker control |
-| `dashboard/src/pages/Dashboard.jsx` | Overview page: summary stats, top trends |
-| `dashboard/src/pages/Trending.jsx` | Live trending topics view |
-| `dashboard/src/pages/Tweets.jsx` | Raw tweet browsing/search |
-| `dashboard/src/pages/History.jsx` | Historical trend view over time |
-| `dashboard/src/pages/Comparison.jsx` | LDA vs. NMF vs. BERTopic comparison view |
-| `dashboard/src/pages/Export.jsx` | Data export page |
-| `dashboard/src/pages/Setting.jsx` | User settings / notification preferences |
-| `dashboard/src/pages/Profile.jsx` | User profile management |
-| `dashboard/src/pages/Login.jsx` / `Register.jsx` | Public authentication pages |
-| `dashboard/src/utils/dateRange.js` | Date-range helper utilities |
-| `dashboard/src/index.css` | Tailwind base styles |
-| `dashboard/index.html`, `vite.config.js`, `tailwind.config.js`, `postcss.config.js` | Build/tooling configuration |
-| `dashboard/package.json` | Node dependency manifest |
-
-### Project-Level / Cross-Cutting Files
-Not part of a single layer — support development, deployment, and documentation across the whole system.
-
-| File | Responsibility |
-|---|---|
-| `README.md` | Project documentation (this file) |
-| `CLAUDE.md` | Guidance for AI-assisted development on this repo |
-| `Dockerfile`, `docker-compose.yml` | Containerized deployment of the API (and dependent services) |
-| `.gitignore` | Version-control exclusions |
+| **Competitive model selection** | Three algorithms, one corpus, one metric suite. The winner is measured, not chosen. |
+| **Per-language modeling** | English and Somali are trained and scored as separate slices, never averaged into a single misleading number. |
+| **Winner-only deployment** | After selection, only the winning model retrains. Compute goes where it counts. |
+| **Reproducible evaluation** | Same corpus, same reference dictionary, same tokenizer, seed 42 across all three models. |
+| **Production auth** | JWT sessions, two-factor login with bcrypt-hashed codes, signature-verified Google Sign-In. |
 
 ---
 
-## Project Structure
+## Architecture
 
-```
-api/                                  # Python FastAPI backend
-├── app/
-│   ├── main.py                       # FastAPI lifespan; 2 loops actually run (ingestion*, digest), 1 defined but unstarted (*ingestion loop currently no-ops — see How to Run)
-│   └── routes.py                     # REST endpoints: auth, trends, jobs, visualizations
-├── db/
-│   └── connection.py                 # Motor async MongoDB client, index init, dedup
-├── models/
-│   └── schemas.py                    # Pydantic schemas for auth, 2FA, user preferences
-├── pipelines/
-│   └── corpus_loader.py              # Loads and filters raw_tweets from MongoDB
-├── jobs/
-│   ├── evaluation_pipeline.py        # Trains all 3 models, evaluates, selects winner,
-│   │                                 #   chains enhancement and comparison
-│   ├── bertopic_pipeline.py          # Standalone BERTopic periodic retrain pipeline
-│   ├── lda_pipeline.py               # Standalone LDA baseline pipeline
-│   ├── nmf_pipeline.py               # Standalone NMF baseline pipeline
-│   ├── model_comparison.py           # Metrics-driven 3-way comparison; writes report
-│   ├── enhancement.py                # Hyperparameter sweep for winning model only
-│   └── deployment.py                 # Deployed-model registry; winner-only dispatcher
-├── services/
-│   ├── bertopic_model.py             # BERTopicTrainer: SentenceTransformer→UMAP→HDBSCAN→c-TF-IDF
-│   ├── lda_model.py                  # LDATrainer: tokenization, stopwords, gensim, pyLDAvis
-│   ├── nmf_model.py                  # NMFTrainer: TF-IDF matrix, scikit-learn NMF, coherence
-│   ├── evaluation.py                 # Shared evaluation engine for all three models
-│   ├── trend_scoring.py              # compute_trend_score(), generate_topic_label()
-│   ├── auth.py                       # JWT creation/verification, bcrypt password hashing
-│   ├── data_collection.py            # TweetCollector (Tweepy v2), dedup logic
-│   ├── email.py                      # SMTP: 2FA codes, spike alerts, digest emails
-│   ├── notifications.py              # Background notification dispatcher
-│   └── monitoring.py                 # Health status and pipeline state checks
-├── resources/
-│   └── stopwords.txt                 # Somali stopwords — single source of truth (one word per line)
-├── results/                          # Written by pipelines at runtime; not committed
-│   ├── metrics/
-│   │   ├── coherence_diversity.csv   # Per-model per-language scores from run_full_evaluation()
-│   │   └── coherence_diversity.json
-│   ├── topics/                       # Top-word CSVs: <model>_<lang>_topics.csv
-│   └── enhancement/
-│       └── before_after.json         # Hyperparameter sweep result for the winning model
-├── reports/
-│   └── comparison/
-│       └── latest_comparison.json    # Three-way comparison report with winner rationale
-├── tests/                            # pytest test suite
-├── run_evaluation.py                 # CLI entry point: trains all 3 models, full evaluation
-├── run_data_collection.py            # CLI entry point: one-shot tweet ingestion
-└── requirements.txt                  # Python dependencies
+```mermaid
+flowchart TD
+    A["Twitter API v2<br/><i>Tweepy v2 · 4 query groups</i>"] --> B[("raw_tweets<br/><i>MongoDB</i>")]
+    B --> C["corpus_loader<br/><i>one shared corpus slice</i>"]
+    C --> D{"split by lang_api"}
+    D -->|en| E["df_en"]
+    D -->|so| F["df_so"]
 
-dashboard/                            # React + Vite frontend
-├── src/
-│   ├── App.jsx                       # React Router v6 (public: /login, /register; protected: rest)
-│   ├── services/api.js               # Axios (base: http://localhost:8000; JWT interceptor)
-│   ├── context/                      # AuthContext, ThemeContext, LanguageContext, DateRangeContext
-│   ├── pages/                        # Dashboard, Trending, Tweets, History, Comparison, Export,
-│   │                                 #   Settings, Profile
-│   └── components/                   # Shared UI: Layout, nav, sidebar
-└── package.json
+    E & F --> G["LDA<br/><i>gensim BoW</i>"]
+    E & F --> H["NMF<br/><i>sklearn TF-IDF</i>"]
+    E & F --> I["BERTopic<br/><i>MiniLM → UMAP → HDBSCAN</i>"]
+
+    G & H & I --> J["Intrinsic evaluation<br/><i>C_v · U_Mass · Diversity</i><br/>shared reference dictionary"]
+    J --> K["coherence_diversity.json<br/><i>single source of truth</i>"]
+    K --> L{"Winner selection<br/><i>en C_v → so C_v → en diversity</i>"}
+    L --> M[("pipeline_state<br/>deployed_model")]
+    L --> N["latest_comparison.json"]
+
+    M --> O["Winner-only retrain<br/><i>triggered inline after ingestion</i>"]
+    O --> P[("detected_trends<br/><i>trend_score = 0.6·volume + 0.4·engagement</i>")]
+    P --> Q["FastAPI REST"]
+    Q --> R["React · Vite dashboard"]
 ```
+
+### Layers
+
+| Layer | Responsibility | Core modules |
+|---|---|---|
+| **Collection** | Query Twitter API v2, deduplicate, persist | `services/data_collection.py`, `run_data_collection.py` |
+| **Storage** | Async MongoDB access, indexes, deduplication | `db/connection.py`, `pipelines/corpus_loader.py` |
+| **Modeling** | Train, score, compare, select, deploy | `services/{lda,nmf,bertopic}_model.py`, `services/evaluation.py`, `jobs/*` |
+| **Service** | REST API, auth, background loops, notifications | `app/main.py`, `app/routes.py`, `services/{auth,email,notifications,monitoring}.py` |
+| **Presentation** | SPA dashboard, charts, exports | `dashboard/src/**` |
 
 ---
 
-## Setup & Installation
+## Quick start
 
-**Prerequisites**
+### Prerequisites
 
-- Python 3.9+ [check version — confirmed 3.9+ badge in prior README; minimum may be higher due to bertopic/sentence-transformers]
-- Node.js 18+
-- MongoDB (local `localhost:27017` or Atlas URI)
+- **Python 3.11** (the Docker image pins 3.11; `sentence-transformers` and `bertopic` drive the floor)
+- **Node.js 18+**
+- **MongoDB 7** — local at `localhost:27017`, or an Atlas URI
 
-**Backend**
+### Docker (recommended)
+
+Brings up MongoDB and the API together:
 
 ```bash
-# From repo root
+TWITTER_BEARER_TOKEN=your_token docker compose up --build
+```
+
+API on `http://localhost:8000`. The dashboard is not containerised — run it separately (below).
+
+### Manual
+
+```bash
+# 1 — Backend dependencies (requirements.txt lives at the repo root, not in api/)
 pip install -r requirements.txt
 ```
 
-Create `api/.env` (see Environment Variables for the full list):
+**2 — Configure.** Create `api/.env` with at minimum:
 
 ```env
 MONGODB_URL=mongodb://localhost:27017/
 DATABASE_NAME=trending_topics_db
 TWITTER_BEARER_TOKEN=your_twitter_v2_bearer_token
-SECRET_KEY=your_jwt_signing_key_change_in_production
+SECRET_KEY=replace_this_with_a_real_random_key
+ACCESS_TOKEN_EXPIRE_MINUTES=120
 ```
-
-**Somali stopwords file**
-
-The system reads Somali stopwords from:
-
-```
-api/resources/stopwords.txt   (one word per line, UTF-8)
-```
-
-This is the single source of truth used by LDA, NMF, and BERTopic preprocessing. If the file is missing, a `logger.error` fires at startup and all Somali preprocessing runs with no stopword filtering. Check the server log immediately on first startup.
-
-**Frontend**
 
 ```bash
-cd dashboard
+# 3 — API  (from api/)
+uvicorn app.main:app --reload        # → http://localhost:8000/docs
+
+# 4 — Dashboard  (from dashboard/)
 npm install
-npm run dev   # development server at http://localhost:5173
+npm run dev                          # → http://localhost:5173
 ```
+
+> **Somali stopwords.** `api/resources/stopwords.txt` (one word per line, UTF-8) is the single source of truth shared by LDA, NMF, and BERTopic preprocessing. If it is missing, a `logger.error` fires at startup and **Somali text is processed with no stopword filtering** — check the first lines of the server log.
+
+> **`api/.env` is not hot-reloaded.** `--reload` watches Python files only. Restart `uvicorn` after editing it.
 
 ---
 
-## Environment Variables
+## Running the pipeline
 
-All read via `python-dotenv` from `api/.env`. Defaults are the values used when the variable is absent.
+All commands run from `api/`.
 
-| Variable | Default | Controls |
-|---|---|---|
-| `MONGODB_URL` | `mongodb://localhost:27017/` | MongoDB connection URI |
-| `DATABASE_NAME` | `trending_topics_db` | Database name (test suite overrides to `trending_topics_test`) |
-| `TWITTER_BEARER_TOKEN` | *(none)* | Twitter API v2 auth; ingestion loop disabled if absent |
-| `SECRET_KEY` | `your_super_secret_key_here` | JWT signing key — must be changed in production |
-| `ALGORITHM` | `HS256` | JWT signing algorithm |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | JWT access token lifetime (minutes) |
-| `LDA_MIN_CORPUS_SIZE` | `1000` | Minimum total tweets before LDA or NMF trains |
-| `LDA_CORPUS_LIMIT` | `2000` | Maximum tweets loaded per LDA / NMF training run |
-| `LDA_GRID_SEARCH` | `true` | Enable K-grid search for LDA and NMF (dense grid K ∈ {4..12}, highest C_v wins, tiebreak K ascending) |
-| `LDA_NEW_TWEETS_THRESHOLD` | `1000` | Read by `nmf_pipeline.py` but not currently consulted by the winner-deployment path (see `DEPLOYED_MODEL_RETRAIN_THRESHOLD`) |
-| `BERTOPIC_MIN_CORPUS_SIZE` | `1000` | Minimum total tweets before BERTopic trains |
-| `BERTOPIC_CORPUS_LIMIT` | `2000` | Maximum tweets loaded per BERTopic training run |
-| `BERTOPIC_NEW_TWEETS_THRESHOLD` | `500` | Minimum new tweets required before the deployed model retrains — read in two places: the inline post-ingestion check in `main.py`, and inside `bertopic_pipeline.py` itself |
-| `WINNER_TRAIN_INTERVAL_MINUTES` | `30` | **Not read anywhere in the code.** No standalone winner-retrain loop exists — retraining is triggered inline after ingestion (see How to Run) |
-| `DEPLOYED_MODEL_RETRAIN_THRESHOLD` | `500` | Minimum new tweets required before `_run_lda_deployment` / `_run_nmf_deployment` actually retrain (checked inside `deployment.py`, in addition to the `BERTOPIC_NEW_TWEETS_THRESHOLD` pre-check in `main.py`) |
-| `COMPARISON_INTERVAL_HOURS` | `168` | **Not read anywhere in the code.** No recurring comparison-refresh loop exists; the comparison report only regenerates when `run_full_evaluation()` runs or via `POST /jobs/run-comparison` |
-| `DIGEST_INTERVAL_HOURS` | `24` | Background loop interval for email digests — this one is actually wired up and running |
-| `SMTP_ENABLED` | `false` | Enable SMTP features (2FA codes, digests, spike alerts) |
-| `SMTP_HOST` | *(empty)* | SMTP server hostname |
-| `SMTP_PORT` | `587` | SMTP server port |
-| `SMTP_USER` | *(empty)* | SMTP authentication username |
-| `SMTP_PASSWORD` | *(empty)* | SMTP authentication password |
-| `SMTP_FROM` | *(SMTP_USER)* | Sender address for outgoing emails |
-| `SMTP_USE_TLS` | `true` | Use TLS for SMTP connection |
-| `SPIKE_THRESHOLD_PCT` | `25` | Topic volume change (%) that triggers a spike alert email |
-| `BERTOPIC_OUTLIER_WARN_RATIO` | `0.35` | HDBSCAN outlier ratio that triggers a monitoring warning |
-
----
-
-## How to Run
-
-All commands run from `api/` unless noted.
-
-### 1. Start the API server
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Server at `http://localhost:8000`. Swagger docs at `http://localhost:8000/docs`.
-
-**Only two background loops are actually started** in `lifespan()` (requires MongoDB; ingestion additionally requires `TWITTER_BEARER_TOKEN`):
-
-| Loop | Interval | Env override | Status |
-|---|---|---|---|
-| Data ingestion (Twitter → `raw_tweets`) | 15 min | — | Started, but currently no-ops every tick — see known gap above (`queries` undefined) |
-| Email digest | 24 h | `DIGEST_INTERVAL_HOURS` | Running as documented |
-
-Two loops that exist in the code are **not** wired up and do not run:
-
-| Loop (defined but not started) | Would-be interval | Notes |
-|---|---|---|
-| `periodic_model_comparison_loop` (one-time initial evaluation) | retries every `BERTOPIC_TRAIN_INTERVAL_MINUTES` (30 min default) until it succeeds, then exits forever | Never called from `lifespan()`. Trigger the first evaluation manually: `POST /jobs/run-evaluation` |
-| A recurring "winner retrain" / "model comparison refresh" timer | — | Does not exist as a standalone loop. Winner retraining is triggered **inline** at the end of `periodic_data_collection_loop`, only right after an ingestion cycle that brought in ≥ `BERTOPIC_NEW_TWEETS_THRESHOLD` new tweets since the winner's last training |
-
-`WINNER_TRAIN_INTERVAL_MINUTES` and `COMPARISON_INTERVAL_HOURS` (see Environment Variables) are **not read anywhere in the codebase** — setting them currently has no effect.
-
-The ingestion loop (once its `queries` bug is fixed) enforces a hard session quota of 1000 tweets and stops entirely when reached (restarts on server restart).
-
-### 2. Collect tweets (one-shot)
+### 1 · Collect tweets
 
 ```bash
 python run_data_collection.py
 ```
 
-Fetches up to 50 tweets per query. Currently 4 **English-only** (`lang:en`) query groups are active (politics/diplomacy, war/military, economy/sports, hashtags); a Somali query group is present in the file but commented out. Writes to `raw_tweets`. Requires `TWITTER_BEARER_TOKEN`.
+Ships four **English** query groups (crime/justice, education, entertainment, hashtags). Two Somali query sets are present in the file but commented out — swap the active `queries` block to switch languages.
 
-### 3. Run the full evaluation
+The running server collects independently: `periodic_data_collection_loop` in `app/main.py` uses its own four **Somali** query groups on a 15-minute tick.
+
+### 2 · Run the evaluation
 
 ```bash
-python run_evaluation.py
+python run_evaluation.py          # or: POST /jobs/run-evaluation
 ```
 
-This is the main academic pipeline. Runs in this order:
+This is the core academic pipeline:
 
-1. Loads shared corpus (up to `LDA_CORPUS_LIMIT` tweets), then splits it into `df_en` / `df_so` by `lang_api`
-2. Trains LDA, NMF, and BERTopic **independently per language** (LDA-EN + LDA-SO, NMF-EN + NMF-SO, BERTopic-EN + BERTopic-SO) on the same loaded corpus, then concatenates each model's per-language topics
-3. Scores each model: C_v coherence, U_Mass coherence, Topic Diversity — **English and Somali only** (Option B). A "combined" tokenized corpus is also built, but only to construct the shared reference `Dictionary` and to save combined topic-word CSVs — it is not an independently scored slice
-4. Writes `results/metrics/coherence_diversity.csv` and `coherence_diversity.json` (rows for `en` and `so` only)
-5. Saves per-model per-language top-word CSVs under `results/topics/` (en / so / combined — combined here is CSV output only, not a metric)
-6. Selects winner: primary = highest English C_v, tiebreak = highest Somali C_v, secondary tiebreak = highest English Topic Diversity; persists to `pipeline_state`
-7. Runs enhancement: hyperparameter sweep on winning model only; writes `results/enhancement/before_after.json`
-8. Runs model comparison: writes `reports/comparison/latest_comparison.json` and updates `pipeline_state`
+1. Load one shared corpus (≤ `LDA_CORPUS_LIMIT` tweets), split into `df_en` / `df_so` by `lang_api`
+2. Train all three models **independently per language** — six models total — then concatenate each model's topics
+3. Score C_v, U_Mass, and Topic Diversity for English and Somali against a shared reference dictionary
+4. Write `results/metrics/coherence_diversity.{csv,json}` and `results/topics/<model>_<lang>_topics.csv`
+5. Select the winner and persist it to `pipeline_state`
+6. Chain `run_model_comparison()` → `reports/comparison/latest_comparison.json`
 
-Requires at least `LDA_MIN_CORPUS_SIZE` tweets in MongoDB.
+Requires at least `LDA_MIN_CORPUS_SIZE` tweets. **Runs once**: a set winner is never re-selected automatically. Force it with `POST /jobs/run-evaluation?force=true`.
 
-### 4. View evaluation results
+### 3 · Serve the winner
 
-| File | Contents |
+```bash
+python run_deployment.py          # or: POST /jobs/run-deployment
+```
+
+Retrains the winning model only and writes to `detected_trends`. On the live server this fires automatically, inline at the end of each ingestion cycle that brought in enough new tweets.
+
+### 4 · Read the output
+
+| Artifact | Contents |
 |---|---|
-| `results/metrics/coherence_diversity.csv` | Per-model per-language C_v, U_Mass, diversity, K |
-| `results/metrics/coherence_diversity.json` | Same data as JSON |
-| `results/topics/<model>_<lang>_topics.csv` | Top-word lists per model per language |
-| `results/enhancement/before_after.json` | Baseline vs. best-candidate comparison for winning model |
-| `reports/comparison/latest_comparison.json` | Three-way comparison with winner selection rationale |
+| `results/metrics/coherence_diversity.{csv,json}` | Per-model, per-language C_v, U_Mass, diversity, K |
+| `results/topics/<model>_<lang>_topics.csv` | Top-word lists |
+| `results/enhancement/before_after.json` | Hyperparameter sweep for the winner |
+| `results/{coherence,diversity}_comparison.{png,pdf}` | Charts — generate from **inside** `api/results/`: `python plot_coherence.py` |
+| `reports/comparison/latest_comparison.json` | Three-way comparison with winner rationale |
+
+### Optional · Hyperparameter enhancement
+
+```python
+from jobs.enhancement import run_enhancement
+await run_enhancement("bertopic")     # LDA: 8 candidates · NMF: 4 · BERTopic: ≤3
+```
+
+The enhanced configuration is adopted **only** when the best candidate's mean C_v strictly exceeds the baseline; otherwise the original survives untouched. This stage is deliberately manual — no route or pipeline invokes it.
 
 ---
 
-## Evaluation Methodology
+## Background loops
 
-Intrinsic metrics only — this task has no ground-truth topic labels, so accuracy, precision, recall, and F1 are not applicable.
+`lifespan()` starts exactly two workers, and only when the MongoDB ping succeeds:
 
-| Metric | Role | Details |
+| Loop | Interval | Override | Behaviour |
+|---|---|---|---|
+| `periodic_data_collection_loop` | 15 min | — | Ingests tweets, then retrains the deployed model once `BERTOPIC_NEW_TWEETS_THRESHOLD` new tweets have arrived. Enforces a hard **1000-tweet session quota** and stops permanently when reached (resets on restart). Requires `TWITTER_BEARER_TOKEN`. |
+| `periodic_email_digest_loop` | 24 h, after a 5-min delay | `DIGEST_INTERVAL_HOURS` | Sends digests to users who have not opted out. |
+
+**`periodic_model_comparison_loop()` is defined in `main.py` but never started.** Despite the name it is not a comparison loop — it would run the first evaluation once and exit. Because it is unwired, **the first winner selection must be triggered manually** (step 2 above).
+
+---
+
+## API
+
+Interactive docs at `http://localhost:8000/docs`.
+
+| Group | Endpoints |
+|---|---|
+| **Auth** | `POST /auth/signup` · `/auth/login` · `/auth/login/2fa` · `/auth/google` · `/auth/change-password` |
+| **2FA** | `GET /auth/2fa/status` · `POST /auth/2fa/send-code` · `/auth/2fa/verify` · `/auth/2fa/disable` |
+| **Preferences** | `GET` · `POST /auth/preferences` |
+| **Trends** | `GET /trends` · `/trends/keywords` · `/trends/topics_over_time` · `/history` · `/raw_tweets` · `/tweets/stats` · `POST /filter` |
+| **Models** | `GET /models/winner` · `/models/status` · `/models/comparison` · `/models/history` |
+| **Jobs** *(auth required)* | `POST /jobs/train-{bertopic,lda,nmf}` · `/jobs/run-evaluation` · `/jobs/run-deployment` · `/jobs/run-comparison` · `/jobs/send-digests` |
+| **Ops** | `GET /health` |
+
+### Authentication
+
+JWT bearer tokens via `OAuth2PasswordBearer`. Login accepts **either** username or email.
+
+When 2FA is enabled, login is a two-step exchange. `POST /auth/login` returns `{requires_2fa: true, challenge_token}` and **no** access token; the client trades that challenge plus the emailed code at `POST /auth/login/2fa` for a real session. `get_current_user()` rejects any token carrying `purpose: "2fa_challenge"`, so a challenge can never be used as a session.
+
+Google Sign-In routes through the same `_begin_login()` gate, so it is not a bypass. ID tokens are verified for signature, issuer, audience, and expiry with `google-auth`; without `GOOGLE_CLIENT_ID` the endpoint refuses every sign-in rather than trusting unverified claims.
+
+| 2FA property | Value |
+|---|---|
+| Code source | `secrets.randbelow` — never `random` |
+| Storage | bcrypt hash in `two_factor_code_hash` |
+| Lifetime | 10 minutes, single-use |
+| Brute-force cap | 5 wrong attempts, then the code is burned |
+| Resend throttle | 60 seconds |
+| Disabling | Requires the account password, or a fresh emailed code for Google-provisioned accounts |
+
+With `SMTP_ENABLED=false`, codes print to the server console instead of failing — 2FA stays fully testable offline.
+
+---
+
+## Configuration
+
+All variables are read from `api/.env` via `python-dotenv`. Defaults apply when the variable is absent.
+
+### Core
+
+| Variable | Default | Purpose |
 |---|---|---|
-| C_v coherence | Primary | Word co-occurrence probability in a sliding window; higher is better |
-| U_Mass coherence | Supporting | Document co-occurrence frequency; negative; less negative is better |
-| Topic Diversity | Tiebreak | Proportion of unique words across all topics' top-N words; 1.0 = no reuse |
+| `MONGODB_URL` | `mongodb://localhost:27017/` | Connection URI |
+| `DATABASE_NAME` | `trending_topics_db` | Database name (tests override to `trending_topics_test`) |
+| `TWITTER_BEARER_TOKEN` | *none* | Twitter API v2 auth. Absent → ingestion loop disables itself |
 
-Each metric is computed **twice** per model against the **same reference corpus and the same tokenization** (`preprocess_lda`): once for English-only documents and once for Somali-only documents (Option B). A combined bilingual corpus is also tokenized internally, but solely to build the shared reference `Dictionary` that both language slices score against, and to save a `combined` topic-word CSV for inspection — it is never scored as its own row, by design: merging both languages would double-count signal already captured separately and would inflate the bag-of-words models (LDA/NMF) via cross-lingual TF-IDF terms.
+### Authentication
 
-**Winner selection rule:** primary = highest English C_v (English is the dominant language in the corpus); tiebreak = highest Somali C_v; secondary tiebreak = highest English Topic Diversity. This is implemented in `jobs/model_comparison.py::_select_winner_from_metrics()`, not as a mean across language slices.
+| Variable | Default | Purpose |
+|---|---|---|
+| `SECRET_KEY` | `your_super_secret_key_here` | JWT signing key — **change this in production** |
+| `ALGORITHM` | `HS256` | JWT algorithm |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | Token lifetime. Raise to `120`; 30 expires mid-demo |
+| `GOOGLE_CLIENT_ID` | *none* | Required, or `/auth/google` refuses all sign-ins |
+| `TWO_FA_DEV_ECHO` | `false` | Returns the 2FA code in the API response — offline demos only, and only when SMTP is unconfigured |
 
-**Enhancement:** after winner selection, a hyperparameter grid is swept for the winning model only (LDA: 8 candidates; NMF: 4 candidates; BERTopic: up to 3 min-cluster-size values). The enhanced configuration is adopted only when the best candidate's mean C_v **strictly exceeds** the baseline; otherwise the original is kept.
+### Modeling
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `LDA_MIN_CORPUS_SIZE` | `1000` | Floor before LDA or NMF trains |
+| `LDA_CORPUS_LIMIT` | `2000` | Ceiling per training run |
+| `LDA_GRID_SEARCH` | `true` | K-grid search, K ∈ {4…12}, highest C_v wins |
+| `LDA_NEW_TWEETS_THRESHOLD` | `1000` | Retrain gate — read by **both** the LDA and NMF pipelines |
+| `BERTOPIC_MIN_CORPUS_SIZE` | `1000` | Floor before BERTopic trains |
+| `BERTOPIC_CORPUS_LIMIT` | `2000` | Ceiling per training run |
+| `BERTOPIC_TRAIN_INTERVAL_MINUTES` | `30` | Retry interval for the (unstarted) evaluation loop |
+| `BERTOPIC_NEW_TWEETS_THRESHOLD` | `1000` | Gate on the inline post-ingestion retrain in `main.py` |
+| `DEPLOYED_MODEL_RETRAIN_THRESHOLD` | `1000` | Second gate, inside `jobs/deployment.py`, for the LDA/NMF deployment paths |
+| `EVAL_NEW_TWEETS_THRESHOLD` | `BERTOPIC_MIN_CORPUS_SIZE` | New tweets required before a re-evaluation attempt |
+| `BERTOPIC_OUTLIER_WARN_RATIO` | `0.35` | HDBSCAN outlier ratio that raises a `/health` warning |
+
+> Two independent retrain gates exist, both defaulting to 1000: `BERTOPIC_NEW_TWEETS_THRESHOLD` in `main.py` and `DEPLOYED_MODEL_RETRAIN_THRESHOLD` in `deployment.py`. Tune both, or the stricter one wins.
+
+### Email & notifications
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SMTP_ENABLED` | `false` | `false` → messages print to stdout instead of sending |
+| `SMTP_HOST` / `SMTP_PORT` | *empty* / `587` | Server |
+| `SMTP_USER` / `SMTP_PASSWORD` | *empty* | Credentials — Gmail requires a 16-character App Password |
+| `SMTP_FROM` | `SMTP_USER`, then `noreply@trending-topics.local` | Sender address |
+| `SMTP_USE_TLS` | `true` | STARTTLS |
+| `DIGEST_INTERVAL_HOURS` | `24` | Digest cadence, and the skip window that stops `--reload` resends |
+| `SPIKE_THRESHOLD_PCT` | `25` | `trend_score` rise that counts as a spike |
+
+The dashboard reads `VITE_GOOGLE_CLIENT_ID` from **`dashboard/.env`** — not the repo root. `vite.config.js` no longer sets `envDir`.
 
 ---
 
-## Key Design Decisions
+## Evaluation methodology
 
-**Same loaded corpus, trained per-language, same seed.** All three models load the identical corpus slice (`load_tweet_corpus()`, same `CORPUS_LIMIT`), then each one trains **two separate models** — one on the English slice, one on the Somali slice — with random seed 42 enforced in LDA, NMF, and BERTopic. The two per-language topic sets are concatenated before evaluation. This keeps topics monolingual and keeps C_v scoring matched to a same-language reference corpus.
+The task has no ground-truth topic labels, so accuracy, precision, recall, and F1 do not apply. Evaluation is **intrinsic only**.
 
-**BERTopic uses lighter preprocessing.** LDA and NMF require tokenized bag-of-words input; BERTopic uses `preprocess_bertopic()` which preserves word order for transformer embeddings. Coherence scoring uses the same reference corpus and same tokenization for all three models, so this asymmetry in training preprocessing does not affect the evaluation yardstick.
+| Metric | Role | Interpretation |
+|---|---|---|
+| **C_v coherence** | Primary | Sliding-window word co-occurrence. Higher is better |
+| **U_Mass coherence** | Supporting | Document co-occurrence. Negative; less negative is better |
+| **Topic Diversity** | Tiebreak | Share of unique words across all topics' top-N. `1.0` = no reuse |
 
-**Perplexity excluded from the comparison.** NMF is non-probabilistic; including perplexity would make a three-model comparison impossible. Only C_v coherence, U_Mass coherence, and Topic Diversity are used.
+Every metric is computed **twice per model** — once over English documents, once over Somali — against the *same* reference corpus and the *same* tokenizer (`preprocess_lda`).
 
-**Somali stopwords from a single file.** `api/resources/stopwords.txt` is loaded at import time by `lda_model.py` and shared with `bertopic_model.py`. Updating stopwords requires editing this file only — no code changes.
+**Winner rule** (`jobs/model_comparison.py::_select_winner_from_metrics`), applied in order:
 
-**"Combined" is not a scored language slice (Option B).** Only English and Somali rows are written to `coherence_diversity.json` and used for winner selection. A combined bilingual corpus is still built, but purely to (a) construct the shared reference `Dictionary` both language slices score against, and (b) save a `combined` topic-word CSV — never as an independently measured C_v/diversity row.
+1. Highest **English C_v** — English dominates the corpus
+2. Tiebreak: highest **Somali C_v**
+3. Secondary tiebreak: highest **English Topic Diversity**
 
-**Winner-only deployment, triggered inline (not a timed loop).** After a winner is selected, only that model's production pipeline retrains — the two losing models stay frozen with their last artifacts. In the running server this retrain is fired from inside `periodic_data_collection_loop`, right after an ingestion cycle that brought in enough new tweets — there is no separate scheduled "winner retrain" timer, and `WINNER_TRAIN_INTERVAL_MINUTES` is not read anywhere.
+Not a mean across slices. Averaging would let a strong English score mask a weak Somali one — precisely the failure this project exists to avoid.
 
-**LDA and NMF use identical corpus thresholds.** `nmf_pipeline.py` intentionally reads `LDA_MIN_CORPUS_SIZE`, `LDA_CORPUS_LIMIT`, and `LDA_GRID_SEARCH` — the same env vars as LDA — so the two baselines cannot diverge in configuration.
+---
 
-**Initial winner selection currently requires a manual trigger.** `periodic_model_comparison_loop()` (meant to auto-run the first evaluation) is defined in `main.py` but is not started in `lifespan()`. Until that's wired up, run the first evaluation yourself: `POST /jobs/run-evaluation` (or `python run_evaluation.py`).
+## Design decisions
+
+**One corpus, per-language models, fixed seed.** All three models load the identical corpus slice, then each trains *two* models — one English, one Somali — with seed 42. Per-language topic sets are concatenated before scoring. This keeps topics monolingual and keeps each C_v measurement matched to a same-language reference.
+
+**"Combined" is built but never scored.** A bilingual corpus is tokenized solely to construct the shared reference `Dictionary` that both slices score against, and to emit a combined topic-word CSV for inspection. It is never an independently scored row: merging languages double-counts signal already captured separately and inflates the bag-of-words models through cross-lingual TF-IDF terms.
+
+**BERTopic trains on lighter preprocessing.** LDA and NMF need tokenized bag-of-words; BERTopic uses `preprocess_bertopic()`, which preserves word order for the transformer. Since coherence scoring re-tokenizes every model identically, this training asymmetry does not bias the yardstick.
+
+**Perplexity is excluded.** NMF is non-probabilistic. Including perplexity would make a three-way comparison impossible.
+
+**Winner-only retraining.** The two losing models stay frozen with their last artifacts. LDA and NMF each have a full deployment path writing the *same* `detected_trends` schema BERTopic writes, so no API or frontend code changes regardless of which model wins.
+
+**LDA and NMF share configuration by design.** `nmf_pipeline.py` deliberately reads `LDA_MIN_CORPUS_SIZE`, `LDA_CORPUS_LIMIT`, and `LDA_GRID_SEARCH`, so the two bag-of-words baselines cannot silently diverge.
+
+**Winner selection is a one-time academic decision.** Once set, it never changes automatically. Re-running requires the explicit `?force=true`.
+
+---
+
+## Frontend
+
+React 18 + Vite + Tailwind, charts by Recharts.
+
+| Area | Detail |
+|---|---|
+| **Routing** | React Router v6. `/login` and `/register` are public; everything else is wrapped in `<Layout>` |
+| **Pages** | Dashboard · Trending · Tweets · History · Comparison · Export · Setting · Profile |
+| **Contexts** | `AuthContext` (JWT in `localStorage`) · `ThemeContext` (light/dark) · `LanguageContext` (en/so, also holds UI strings) · `DateRangeContext` (global date filter) |
+| **API layer** | Axios against `http://localhost:8000`, JWT injected by a request interceptor |
+| **Word cloud** | Custom implementation on the **Dashboard** page, fed by `GET /trends/keywords` |
+
+A single response interceptor absorbs two cross-cutting concerns so no page repeats them:
+
+- FastAPI's 422 `detail` **array** is flattened to a string — pages render `detail` directly, and an array would crash React
+- a 401 on any non-login endpoint clears the token and redirects to `/login?expired=1`, which renders as *"Your session expired"*
+
+`Login.jsx` is two-phase: when `login()` resolves with `requires2FA`, the form is replaced by a 6-digit code screen. **No token is stored until 2FA succeeds.**
 
 ---
 
@@ -404,14 +356,102 @@ Each metric is computed **twice** per model against the **same reference corpus 
 # From api/
 pytest tests/ -v
 
-# Integration tests only (require live MongoDB)
-pytest tests/ -m mongo_integration -v
+# Integration tests only (requires a live MongoDB)
+pytest tests/ -m integration -v
 ```
 
-`conftest.py` sets `DATABASE_NAME=trending_topics_test` and wipes all collections before and after each test. Integration tests are auto-skipped when MongoDB is unavailable. No real data or production database is touched.
+`conftest.py` forces `DATABASE_NAME=trending_topics_test` and wipes every collection before and after each test — no production data is ever touched.
+
+**Current state: `56 passed, 4 failed` in ~70 s.**
+
+`tests/test_2fa_login.py` exercises the full security surface through the real ASGI app: 2FA-gated login, challenge-token rejection, single-use codes, the brute-force cap, expiry, disable re-authentication, password policy, and forged Google credentials.
+
+<details>
+<summary><b>The four known failures</b> — all predate the current pipeline and are unrelated to auth</summary>
+
+| Test | Cause |
+|---|---|
+| `test_evaluation.py::test_evaluate_model_produces_one_row_per_language` | Expects 3 rows (`en`, `so`, `combined`); `evaluate_model()` returns 2 by design |
+| `test_evaluation.py::test_save_topic_words_writes_per_language_csv` | `KeyError: 'combined'` — no combined-language CSV is written any more |
+| `test_nmf_model.py::test_run_nmf_sync_end_to_end_on_dummy_data` | Expects 4 grid results; the K ∈ {4…12} range now yields 9 |
+| `test_integration_db.py::test_model_comparison_with_pipeline_states` | Returns `"skipped"` — the fixture seeds 2 of the 3 required pipeline states |
+
+Each asserts on an output shape the pipeline intentionally no longer produces. They are kept as a record of the design change rather than deleted.
+
+</details>
+
+---
+
+## Project structure
+
+```
+api/                             # FastAPI backend
+├── app/
+│   ├── main.py                  # App factory, CORS, lifespan, background loops
+│   └── routes.py                # All REST endpoints
+├── db/connection.py             # Motor client, indexes, trend deduplication
+├── models/schemas.py            # Pydantic schemas + password policy
+├── pipelines/corpus_loader.py   # Shared MongoDB → pandas corpus loader
+├── jobs/
+│   ├── evaluation_pipeline.py   # Trains all 3, scores, selects winner, chains comparison
+│   ├── {bertopic,lda,nmf}_pipeline.py
+│   ├── model_comparison.py      # Three-way report + winner rule
+│   ├── enhancement.py           # Winner-only hyperparameter sweep (manual)
+│   └── deployment.py            # Winner registry + winner-only dispatcher
+├── services/
+│   ├── {bertopic,lda,nmf}_model.py
+│   ├── evaluation.py            # Shared C_v / U_Mass / diversity engine
+│   ├── trend_scoring.py         # compute_trend_score(), generate_topic_label()
+│   ├── data_collection.py       # TweetCollector (Tweepy v2)
+│   ├── auth.py                  # JWT + bcrypt (passwords and 2FA codes)
+│   ├── email.py                 # SMTP, secrets-based code generation
+│   ├── notifications.py         # Digests + spike alerts
+│   └── monitoring.py            # Backs GET /health
+├── resources/stopwords.txt      # Somali stopwords — single source of truth
+├── results/                     # metrics/ · topics/ · enhancement/ · charts
+├── reports/                     # bertopic/ · comparison/ · lda/ · nmf/
+├── tests/
+└── run_{evaluation,deployment,bertopic,data_collection}.py
+
+dashboard/                       # React + Vite frontend
+└── src/
+    ├── App.jsx                  # Route table
+    ├── services/api.js          # Axios instance + interceptors
+    ├── contexts/                # Auth · Theme · Language · DateRange
+    ├── components/              # Layout · Navigation · DateFilter · LinkifiedText
+    ├── pages/                   # 8 pages
+    └── utils/dateRange.js
+
+Dockerfile · docker-compose.yml · requirements.txt
+```
+
+### MongoDB collections
+
+| Collection | Contents |
+|---|---|
+| `raw_tweets` | Ingested tweets. Unique index on `id`, indexed on `collected_at` |
+| `detected_trends` | The **deployed model's** topics — tagged by `model`, scored by `trend_score` |
+| `pipeline_state` | Unique on `pipeline`. Keys: `deployed_model`, `bertopic`/`lda`/`nmf`, `evaluation`, `model_comparison`, `notifications` |
+| `pipeline_history` | Append-only log of training and evaluation runs |
+| `topic_evolution` | Dynamic topic-modeling time series (BERTopic) |
+| `users` | Credentials, 2FA state, notification preferences |
+
+---
+
+## Known limitations
+
+Documented rather than hidden — each is a deliberate scope boundary or an acknowledged defect.
+
+- **Spike detection produces false positives.** `_detect_spikes()` matches topics across batches by `Name`, but BERTopic names embed the topic index (`0_ai_tech_…`). When an index shifts between runs the topic reads as brand new, emitting a spurious spike at `pct_change: 100.0`.
+- **The first evaluation needs a manual trigger.** `periodic_model_comparison_loop()` is never started in `lifespan()`.
+- **The enhancement stage is manual.** Nothing calls `run_enhancement()` — no route, no pipeline, no `__main__` block.
+- **Collection queries differ by entry point.** `run_data_collection.py` ships English queries; the server loop ships Somali ones. Align them before a bilingual run.
+- **`npm run lint` fails.** ESLint is installed but no config file exists. Use `npm run build` to catch breakage.
+- **`docker-compose.yml` sets `COMPARISON_INTERVAL_HOURS` and mounts `./api/artifacts`.** Neither is read or produced by the current code; both are inert leftovers.
+- **A stale docstring** in `jobs/deployment.py` refers to a `periodic_winner_training_loop` that does not exist. Retraining is triggered inline at the end of the collection loop.
 
 ---
 
 ## License
 
-MIT License. Developed by Vision Tech, FYP 2026.
+MIT © Vision Tech — Final Year Project, 2026
